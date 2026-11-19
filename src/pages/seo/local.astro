@@ -1,0 +1,83 @@
+---
+import Shell from '../../components/layout/Shell.astro';
+import SeoTabs from '../../components/seo/SeoTabs.astro';
+import Pos from '../../components/seo/Pos.astro';
+import Panel from '../../components/ui/Panel.astro';
+import Kpi from '../../components/ui/Kpi.astro';
+import { load, hasData, errorOf } from '../../lib/load.ts';
+import { href } from '../../lib/filters.ts';
+import { num, pct } from '../../lib/format.ts';
+import { ratio } from '../../lib/stats.ts';
+import { latest, localSummary, previous, sentence, shortDate } from '../../lib/seo/stats.ts';
+
+const { repos, now, simulate } = Astro.locals;
+const url = Astro.url;
+const seo = repos.seo;
+const opts = { simulate, now };
+const takenAt = await seo.takenAt().catch(() => null);
+const asOf = () => takenAt;
+
+const [targets, local] = await Promise.all([
+  load(() => seo.targets(), opts),
+  load(() => seo.local(), { ...opts, asOf, staleKind: 'seo' })
+]);
+const t = hasData(targets) ? targets.data : null;
+const rows = hasData(local) ? local.data : [];
+const { date, rows: cur } = latest(rows);
+const prior = previous(rows).rows;
+const keywords = [...new Set(cur.map((r) => r.keyword))];
+const summary = localSummary(rows);
+const pick = url.searchParams.get('cell'); // "keyword|marketId"
+const sel = cur.find((r) => `${r.keyword}|${r.marketId}` === pick);
+const cell = (k: string, m: string) => cur.find((r) => r.keyword === k && r.marketId === m);
+const delta = (k: string, m: string) => {
+  const a = cell(k, m)?.position, b = prior.find((r) => r.keyword === k && r.marketId === m)?.position;
+  return a != null && b != null ? b - a : null;
+};
+const city = (id: string) => t?.markets.find((m) => m.id === id)?.city ?? id;
+---
+<Shell title="Google Maps (map pack)" question="Whether ARR is one of the three businesses Google shows on the map when someone in each city searches for HVAC help." filters={{}}>
+  <SeoTabs />
+
+  <div class="grid cols-3">
+    <Kpi label="In the map pack (top 3)" value={hasData(local) ? pct(ratio(summary.top3, summary.checks)) : '—'} detail={hasData(local) ? `${num(summary.top3)} of ${num(summary.checks)} keyword × city searches` : undefined} error={errorOf(local)} />
+    <Kpi label="Listed in the first 20" value={hasData(local) ? pct(ratio(summary.listed, summary.checks)) : '—'} detail={hasData(local) ? `${num(summary.checks - summary.listed)} searches where we don't appear at all` : undefined} error={errorOf(local)} />
+    <Kpi label="Cities checked" value={t ? num(t.markets.length) : '—'} detail={date ? `Latest refresh: week of ${shortDate(date)}` : undefined} error={errorOf(targets)} />
+  </div>
+
+  <Panel title="Map position by city" subtitle="Searched from each city's centre on Google Maps. Positions 1–3 are the map pack on the regular results page. Pick a cell to see who holds the top three." result={local} source="DataForSEO SERP (Google Maps, city-centre coordinates)" flush emptyText="No Maps checks yet. They run when LOCAL_KEYWORDS is set in the targets.">
+    <div class="table-wrap"><table>
+      <thead><tr><th>Keyword</th>{t?.markets.map((m) => <th class="num">{m.city}</th>)}</tr></thead>
+      <tbody>{keywords.map((k) => (
+        <tr><td>{sentence(k)}</td>{t?.markets.map((m) => { const c = cell(k, m.id); return (
+          <td class:list={['num', { cur: c && c === sel }]}>{c ? <a class="cell" href={href('/seo/local', url, { cell: c === sel ? undefined : `${k}|${m.id}` })}><Pos position={c.position} delta={delta(k, m.id)} /></a> : <span class="muted">—</span>}</td>
+        ); })}</tr>
+      ))}</tbody>
+    </table></div>
+  </Panel>
+
+  {sel && (
+    <Panel title={`Top three: "${sel.keyword}" in ${city(sel.marketId)}`} subtitle={sel.position == null ? 'ARR is not in the first 20 Maps results here.' : `ARR is at position ${sel.position}.`} result={local} source="DataForSEO SERP (Google Maps)">
+      <a slot="actions" class="small" href={href('/seo/local', url, { cell: undefined })}>Close</a>
+      <ol class="three">
+        {sel.topThree.map((b) => (
+          <li class:list={{ us: b.domain === t?.domain }}>
+            <strong>{b.title}</strong>
+            <span class="muted small">{b.domain ?? 'no website'}{b.rating != null ? ` · ${b.rating.toFixed(1)}★` : ''}{b.reviews != null ? ` · ${num(b.reviews)} reviews` : ''}</span>
+          </li>
+        ))}
+      </ol>
+    </Panel>
+  )}
+
+  <p class="muted small">Map-pack placement depends on distance, so a city far from the shop can rank lower with no change on our side. Review count and rating are the levers ARR controls most directly.</p>
+</Shell>
+
+<style>
+  table td:first-child, table th:first-child { padding-left: 18px; }
+  td.cur { background: var(--accent-dim); }
+  .cell:hover { text-decoration: none; filter: brightness(1.2); }
+  .three { margin: 0; padding-left: 22px; display: grid; gap: 10px; }
+  .three li { display: grid; gap: 2px; }
+  .three li.us strong { color: var(--accent); }
+</style>

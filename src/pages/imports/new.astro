@@ -1,0 +1,152 @@
+---
+/* Import wizard. Every step is a GET, so the state lives in the URL and nothing is written. Steps 1–3 run for real
+ * against the coverage repository. Starting a dry run or an import needs the job runner, so those controls are
+ * disabled in v1 (see README). */
+import Shell from '../../components/layout/Shell.astro';
+import Panel from '../../components/ui/Panel.astro';
+import Status from '../../components/ui/Status.astro';
+import Icon from '../../components/ui/Icon.astro';
+import { load, hasData } from '../../lib/load.ts';
+import { freshness } from '../../lib/freshness.ts';
+import { enumParam, href } from '../../lib/filters.ts';
+import { num, pct, relative, SOURCE_LABEL } from '../../lib/format.ts';
+import { ratio } from '../../lib/stats.ts';
+import type { County } from '../../domain/types.ts';
+
+const { repos, now, simulate } = Astro.locals;
+const url = Astro.url;
+
+const COUNTIES: { key: County; label: string; source: string; available: boolean; note: string }[] = [
+  { key: 'cook', label: 'Cook County', source: 'cook-assessor', available: true, note: 'Bulk extract from the Cook County Assessor (Socrata). Cook blocks datacenter IPs, so run the extract from a laptop (see RUNBOOK).' },
+  { key: 'dupage', label: 'DuPage County', source: 'dupage-assessor', available: true, note: 'DuPage Assessor parcel data. Partial coverage today.' },
+  { key: 'will', label: 'Will County', source: 'will-assessor', available: false, note: 'No bulk source configured yet. The pricing app\'s Will lookup is still a stub, so imports would fail (see job-2398).' }
+];
+const county = enumParam(url, 'county', COUNTIES.map((c) => c.key));
+const c = COUNTIES.find((x) => x.key === county);
+
+const areasR = await load(() => repos.coverage.list({ kind: 'township', county }), { simulate, now, isEmpty: (a) => a.length === 0 });
+const townships = hasData(areasR) ? areasR.data : [];
+const selected = url.searchParams.getAll('area').filter((id) => townships.some((t) => t.id === id));
+const preview = url.searchParams.get('step') === 'preview' && selected.length > 0;
+const step = !c ? 1 : !preview ? 2 : 3;
+const chosen = townships.filter((t) => selected.includes(t.id));
+const expected = chosen.reduce((s, t) => s + (t.parcelsExpected ?? 0), 0);
+const indexed = chosen.reduce((s, t) => s + t.homesIndexed, 0);
+
+const STEPS = ['County', 'Areas', 'Preview', 'Dry run', 'Start'];
+// Going back keeps the earlier answers (county, areas) and drops only what the later step added.
+const without = (...keys: string[]) => {
+  const u = new URL(url);
+  for (const k of keys) u.searchParams.delete(k);
+  return u.pathname + u.search;
+};
+const back = step === 3 ? without('step') : step === 2 ? without('county', 'area', 'step') : href('/imports', url);
+---
+<Shell title="New import" question="Pull property records for a county and set of areas. Preview the coverage change before anything runs." filters={{}}>
+  <a slot="actions" class="btn ghost" href={href('/imports', url)}><Icon name="back" size={15} /> All imports</a>
+
+  <ol class="stepper" aria-label="Import steps">
+    {STEPS.map((s, i) => <li class:list={{ done: i + 1 < step, now: i + 1 === step }} aria-current={i + 1 === step ? 'step' : undefined}><span>{i + 1}</span>{s}</li>)}
+  </ol>
+
+  {step === 1 && (
+    <Panel title="1 · Choose a county">
+      <form method="get" class="cards">
+        {COUNTIES.map((x) => (
+          <label class:list={['card', { off: !x.available }]}>
+            <input type="radio" name="county" value={x.key} required disabled={!x.available} />
+            <strong>{x.label}</strong>
+            <span class="muted small">{SOURCE_LABEL[x.source]}</span>
+            <span class="small">{x.note}</span>
+            {!x.available && <Status value="missing" label="Unavailable" />}
+          </label>
+        ))}
+        <div class="nav"><button class="btn primary" type="submit">Next: choose areas →</button></div>
+      </form>
+    </Panel>
+  )}
+
+  {step === 2 && c && (
+    <Panel title={`2 · Choose areas in ${c.label}`} subtitle="Townships. Stale and missing areas are pre-selected." result={areasR} emptyText={`No townships in ${c.label} are in the service area.`}>
+      <form method="get">
+        <input type="hidden" name="county" value={c.key} />
+        <input type="hidden" name="step" value="preview" />
+        <div class="table-wrap"><table>
+          <thead><tr><th></th><th>Township</th><th>Status</th><th class="num">Indexed</th><th class="num">Expected</th><th>Last refresh</th></tr></thead>
+          <tbody>
+            {townships.map((t) => {
+              const f = t.homesIndexed === 0 ? 'missing' : freshness(t.lastRefreshedAt, 'coverage', now);
+              const pre = url.searchParams.getAll('area').length ? selected.includes(t.id) : f !== 'current';
+              return (
+                <tr>
+                  <td><input type="checkbox" name="area" value={t.id} checked={pre} id={`a-${t.id}`} /></td>
+                  <td><label for={`a-${t.id}`}>{t.name}</label></td>
+                  <td><Status value={f} /></td>
+                  <td class="num">{num(t.homesIndexed)}</td>
+                  <td class="num">{t.parcelsExpected ? `~${num(t.parcelsExpected)}` : '—'}</td>
+                  <td class="muted">{relative(t.lastRefreshedAt, now)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table></div>
+        <div class="nav"><a class="btn ghost" href={back}>← Back</a><button class="btn primary" type="submit">Next: preview coverage →</button></div>
+      </form>
+    </Panel>
+  )}
+
+  {step === 3 && c && (
+    <>
+      <Panel title="3 · Preview expected coverage" subtitle={`${c.label} · ${chosen.map((t) => t.name).join(', ')}`} source={`${SOURCE_LABEL[c.source]} · coverage index`}>
+        <div class="grid cols-3 prev">
+          <div><span class="muted small">Records to process (approx.)</span><strong>{num(expected)}</strong></div>
+          <div><span class="muted small">Indexed today</span><strong>{num(indexed)}</strong><span class="small">{pct(ratio(indexed, expected))} complete</span></div>
+          <div><span class="muted small">After import (if all accepted)</span><strong>{num(expected)}</strong><span class="small">+{num(Math.max(0, expected - indexed))} new · existing records re-versioned</span></div>
+        </div>
+        <p class="muted small">Existing homes get a new version only when a field changed. Changes over the large-change threshold are sent to the Data Quality queue for review, not applied silently.</p>
+      </Panel>
+
+      <Panel title="4 · Dry run" subtitle="Validates every record against the rules below without writing anything.">
+        <ul class="rules">
+          <li><Icon name="check" size={14} /> PIN format and duplicate PINs within the extract</li>
+          <li><Icon name="check" size={14} /> Address normalised to the Assessor's spelling (same rules as the pricing app's normalize.ts)</li>
+          <li><Icon name="check" size={14} /> Residential class only (vacant land, condo common areas rejected)</li>
+          <li><Icon name="check" size={14} /> Plausible year built (1800–next year) and square footage (300–15,000)</li>
+          <li><Icon name="check" size={14} /> Large changes vs. the previous release flagged for review</li>
+        </ul>
+        <div class="nav">
+          <a class="btn ghost" href={back}>← Change areas</a>
+          <button class="btn" disabled title="Needs the Supabase job runner">Run dry run</button>
+        </div>
+      </Panel>
+
+      <Panel title="5 · Start import">
+        <p class="muted">Starting an import writes to the property database, so it's off until real authentication and the audit trail exist. For now, Cook County data is loaded with <span class="mono">npm run county:extract</span> from a laptop (docs/RUNBOOK.md).</p>
+        <div class="nav"><button class="btn primary" disabled>Start import</button></div>
+      </Panel>
+    </>
+  )}
+</Shell>
+
+<style>
+  .stepper { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; flex-wrap: wrap; counter-reset: s; }
+  .stepper li { display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-3); font-size: 13px; }
+  .stepper li span { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); font-size: 12px; font-weight: 700; }
+  .stepper li.done { color: var(--text-2); }
+  .stepper li.done span { background: var(--good); color: #04121c; }
+  .stepper li.now { color: var(--text-1); border-color: var(--accent); background: var(--accent-dim); }
+  .stepper li.now span { background: var(--accent); color: #04121c; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 12px; }
+  .card { display: grid; gap: 6px; padding: 14px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-2); cursor: pointer; color: var(--text-1); font-size: 13.5px; align-content: start; }
+  .card:has(input:checked) { border-color: var(--accent); background: var(--accent-dim); }
+  .card.off { opacity: 0.6; cursor: not-allowed; }
+  .card input { justify-self: start; accent-color: var(--accent); }
+  .nav { grid-column: 1 / -1; display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+  input[type='checkbox'] { accent-color: var(--accent); width: 16px; height: 16px; }
+  .prev > div { display: grid; gap: 2px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+  .prev strong { font: 800 24px var(--font-display); font-stretch: expanded; }
+  .prev + p { margin-top: 12px; }
+  .rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
+  .rules li { display: flex; gap: 8px; align-items: center; }
+  .rules :global(svg) { color: var(--good); }
+</style>

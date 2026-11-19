@@ -1,0 +1,39 @@
+---
+/* Inline stroke icons, so there's no icon font or network fetch. Decorative by default: text always sits beside them. */
+interface Props { name: string; size?: number; label?: string }
+const { name, size = 18, label } = Astro.props;
+const P: Record<string, string> = {
+  overview: 'M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z',
+  home: 'M3 11 12 4l9 7M5 10v10h14V10M10 20v-6h4v6',
+  chart: 'M4 20V10M10 20V4M16 20v-8M22 20H2',
+  weather: 'M17 18a4 4 0 0 0 0-8 6 6 0 0 0-11.6 1.5A3.5 3.5 0 0 0 6.5 18zM8 21l1-2M12 21l1-2',
+  map: 'M9 4 3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14',
+  import: 'M12 3v12M7 10l5 5 5-5M4 17v3h16v-3',
+  shield: 'M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6zM9 12l2 2 4-4',
+  key: 'M14 7a4 4 0 1 1-3.5 6L4 19.5V21h3v-2h2v-2h2l1.5-1.5A4 4 0 0 1 14 7zM16 9h.01',
+  search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM21 21l-5-5',
+  flask: 'M9 3h6M10 3v6L4 19a1.5 1.5 0 0 0 1.3 2h13.4a1.5 1.5 0 0 0 1.3-2L14 9V3M7 15h10',
+  lock: 'M6 11h12v10H6zM8 11V7a4 4 0 0 1 8 0v4',
+  alert: 'M12 3 2 20h20zM12 10v4M12 17h.01',
+  check: 'M4 12l5 5L20 6',
+  clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
+  x: 'M6 6l12 12M18 6 6 18',
+  info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v6M12 7.5h.01',
+  arrow: 'M5 12h14M13 6l6 6-6 6',
+  back: 'M19 12H5M11 6l-6 6 6 6',
+  refresh: 'M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4',
+  pause: 'M8 5v14M16 5v14',
+  dot: 'M12 12h.01',
+  thermo: 'M10 13V5a2 2 0 1 1 4 0v8a4 4 0 1 1-4 0z',
+  snow: 'M12 2v20M4.9 7l14.2 10M19.1 7 4.9 17',
+  flame: 'M12 22c4 0 7-3 7-7 0-3-2-6-4-8 0 3-2 4-3 4 0-3-1-6-4-9 0 4-3 7-3 11 0 5 3 9 7 9z',
+  globe: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3',
+  spark: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z',
+  pin: 'M12 21s-7-6.1-7-11a7 7 0 0 1 14 0c0 4.9-7 11-7 11zM12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5',
+  link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
+  layers: 'M12 3 2 8l10 5 10-5zM2 13l10 5 10-5M2 18l10 5 10-5'
+};
+const d = P[name] ?? P.dot;
+---
+<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+  role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : 'true'} style="flex:none"><path d={d} /></svg>

@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "arr-intelligence-hub",
+  "compatibility_date": "2025-04-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "vars": {
+    "DATA_SOURCE": "mock",
+    "SEO_DATA_SOURCE": "mock"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "SEO",
+      "id": "local"
+    }
+  ]
+}

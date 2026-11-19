@@ -1,0 +1,98 @@
+---
+import Shell from '../../components/layout/Shell.astro';
+import SeoTabs from '../../components/seo/SeoTabs.astro';
+import Pos from '../../components/seo/Pos.astro';
+import Panel from '../../components/ui/Panel.astro';
+import Columns from '../../components/charts/Columns.astro';
+import BarList from '../../components/charts/BarList.astro';
+import { load, hasData } from '../../lib/load.ts';
+import { enumParam, href } from '../../lib/filters.ts';
+import { num } from '../../lib/format.ts';
+import { latest, rankBuckets, rankChanges, rankTrend, sentence, SERVICE_LABEL, shortDate } from '../../lib/seo/stats.ts';
+import type { SeoService } from '../../domain/seo.ts';
+
+const { repos, now, simulate } = Astro.locals;
+const url = Astro.url;
+const seo = repos.seo;
+const opts = { simulate, now };
+const takenAt = await seo.takenAt().catch(() => null);
+const asOf = () => takenAt;
+
+const targets = await load(() => seo.targets(), opts);
+const t = hasData(targets) ? targets.data : null;
+const marketId = t?.markets.some((m) => m.id === url.searchParams.get('market')) ? url.searchParams.get('market')! : undefined;
+const services = [...new Set(t?.keywords.map((k) => k.service) ?? [])] as SeoService[];
+const service = enumParam(url, 'service', services);
+
+const ranks = await load(() => seo.rankings({ marketId, service }), { ...opts, asOf, staleKind: 'seo' });
+const rows = hasData(ranks) ? ranks.data : [];
+const changes = rankChanges(rows);
+const trend = rankTrend(rows);
+const buckets = rankBuckets(latest(rows).rows);
+const keywords = (t?.keywords ?? []).filter((k) => !service || k.service === service);
+const markets = (t?.markets ?? []).filter((m) => !marketId || m.id === marketId);
+const at = (keyword: string, mid: string) => changes.find((c) => c.keyword === keyword && c.marketId === mid);
+const FEATURE: Record<string, string> = { local_pack: 'Map pack', ai_overview: 'AI Overview', people_also_ask: 'People also ask', featured_snippet: 'Featured snippet' };
+const domainOf = (u: string | null) => (u ? u.replace(/^https?:\/\/(www\.)?/, '') : '');
+---
+<Shell title="Google rankings" question="Where alwaysreadyrepair.com ranks in Google's regular results for each service in each city, and who sits above us." filters={{}}>
+  <SeoTabs />
+
+  <form class="inputs" method="get">
+    {url.searchParams.get('simulate') && <input type="hidden" name="simulate" value={url.searchParams.get('simulate')!} />}
+    <label>City<select name="market" onchange="this.form.requestSubmit()"><option value="">All cities</option>{t?.markets.map((m) => <option value={m.id} selected={m.id === marketId}>{m.city}</option>)}</select></label>
+    <label>Service<select name="service" onchange="this.form.requestSubmit()"><option value="">All services</option>{services.map((s) => <option value={s} selected={s === service}>{SERVICE_LABEL[s]}</option>)}</select></label>
+    <noscript><button class="btn" type="submit">Apply</button></noscript>
+  </form>
+
+  <div class="grid split">
+    <Panel title="Searches with ARR on page one" subtitle="Keyword × city checks per weekly refresh: top 3, and 4–10. The rest are page two or lower." result={ranks} source="DataForSEO SERP (Google organic, desktop, city location)" emptyText="No rank checks match these filters.">
+      {trend.length > 0 && (
+        <Columns title="Rank checks with ARR in the top 3 and positions 4–10, by refresh" height={210} unit=" searches" labelEvery={Math.ceil(trend.length / 6)}
+          buckets={trend.map((d) => ({ label: shortDate(d.date), tip: `Week of ${shortDate(d.date)} · ${num(d.checks)} checks` }))}
+          series={[{ name: 'Top 3', color: 'var(--series-1)', values: trend.map((d) => d.top3) }, { name: 'Positions 4–10', color: 'var(--series-3)', values: trend.map((d) => d.top10 - d.top3) }]} />
+      )}
+    </Panel>
+    <Panel title="Where we rank now" subtitle="Latest refresh." result={ranks} source="DataForSEO SERP (Google organic)" emptyText="No rank checks match these filters.">
+      <BarList rows={buckets.map((b) => ({ label: b.label, value: b.count }))} shareOf={buckets.reduce((s, b) => s + b.count, 0) || undefined} />
+    </Panel>
+  </div>
+
+  {!marketId ? (
+    <Panel title="Keyword by city" subtitle="Organic position in the latest refresh, with the change since the one before. Pick a city for detail." result={ranks} source="DataForSEO SERP (Google organic)" flush emptyText="No rank checks match these filters.">
+      <div class="table-wrap"><table>
+        <thead><tr><th>Keyword</th>{markets.map((m) => <th class="num"><a href={href('/seo/rankings', url, { market: m.id, service })}>{m.city}</a></th>)}</tr></thead>
+        <tbody>{keywords.map((k) => (
+          <tr><td>{sentence(k.keyword)}<span class="muted small svc">{SERVICE_LABEL[k.service]}</span></td>{markets.map((m) => { const c = at(k.keyword, m.id); return <td class="num">{c ? <Pos position={c.position} delta={c.delta} /> : <span class="muted">—</span>}</td>; })}</tr>
+        ))}</tbody>
+      </table></div>
+    </Panel>
+  ) : (
+    <Panel title={`${markets[0]?.city ?? ''}: keyword detail`} subtitle="Latest refresh. The competitor shown is the best-placed one above us." result={ranks} source="DataForSEO SERP (Google organic)" flush emptyText="No rank checks match these filters.">
+      <a slot="actions" class="small" href={href('/seo/rankings', url, { market: undefined, service })}>All cities</a>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Keyword</th><th class="num">Position</th><th>Our page</th><th>Ahead of us</th><th>On the results page</th><th>Map pack</th></tr></thead>
+        <tbody>{keywords.map((k) => { const c = at(k.keyword, marketId); return (
+          <tr>
+            <td>{sentence(k.keyword)}</td>
+            <td class="num">{c ? <Pos position={c.position} delta={c.delta} /> : '—'}</td>
+            <td class="mono small">{c?.url ? <a href={c.url} rel="noopener" target="_blank">{domainOf(c.url)}</a> : <span class="muted">—</span>}</td>
+            <td>{c?.topCompetitor ? <>{c.topCompetitor.domain} <span class="muted small">#{c.topCompetitor.position}</span></> : c?.position === 1 ? <span class="muted">No one</span> : '—'}</td>
+            <td class="small">{c?.features.map((f) => FEATURE[f] ?? f).join(' · ') || '—'}</td>
+            <td>{c ? (c.inLocalPack ? 'In it' : <span class="muted">Not in it</span>) : '—'}</td>
+          </tr>
+        ); })}</tbody>
+      </table></div>
+    </Panel>
+  )}
+
+  <p class="muted small">Positions count organic results only, the way a person counts down the page; ads, the map pack and AI Overviews are not numbered. "Not ranked" means not in the first {t?.rankDepth ?? 50} results. Results are fetched from each city's location, so they match what a homeowner there sees, not what you see from the office.</p>
+</Shell>
+
+<style>
+  .inputs { display: flex; gap: 12px; flex-wrap: wrap; }
+  .inputs label { min-width: 200px; }
+  .svc { display: block; }
+  table td:first-child, table th:first-child { padding-left: 18px; }
+  th a { color: inherit; }
+</style>

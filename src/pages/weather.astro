@@ -1,0 +1,138 @@
+---
+import Shell from '../components/layout/Shell.astro';
+import Panel from '../components/ui/Panel.astro';
+import Kpi from '../components/ui/Kpi.astro';
+import Status from '../components/ui/Status.astro';
+import Icon from '../components/ui/Icon.astro';
+import Skeleton from '../components/ui/Skeleton.astro';
+import Columns from '../components/charts/Columns.astro';
+import Lines from '../components/charts/Lines.astro';
+import WeatherDemand from '../components/panels/WeatherDemand.astro';
+import { load, hasData } from '../lib/load.ts';
+import { bucket } from '../lib/charts.ts';
+import { href, rangeDates, RANGES, readGlobalFilters } from '../lib/filters.ts';
+import { date, dateTime, num, relative } from '../lib/format.ts';
+import { dailyNormal, weatherAreaFor } from '../lib/weather.ts';
+
+const { repos, now, simulate } = Astro.locals;
+const url = Astro.url;
+const g = readGlobalFilters(url);
+const opts = { simulate, now };
+const { from, to } = rangeDates(g.range, now);
+const rangeLabel = RANGES.find((r) => r.key === g.range)!.label.toLowerCase();
+
+const areasR = await load(() => repos.weather.areas(), opts);
+const areas = hasData(areasR) ? areasR.data : [];
+const zips = await repos.coverage.list({ kind: 'zip' }).catch(() => []);
+const NONE = { status: 'empty', asOf: null } as const; // no weather area configured → every panel shows empty
+const area = areas.find((a) => a.id === url.searchParams.get('area')) ?? weatherAreaFor(g.territory, zips, areas);
+
+const [obsR, normalsR, forecastR, alertsR] = area
+  ? await Promise.all([
+      load(() => repos.weather.observations(area.id, from, to), { ...opts, asOf: (o) => o.at(-1)?.source.retrievedAt ?? null, staleKind: 'weatherObs' }),
+      load(() => repos.weather.normals(area.id), opts),
+      load(() => repos.weather.forecast(area.id), { ...opts, isEmpty: (f) => !f || f.periods.length === 0, asOf: (f) => f?.issuedAt ?? null, staleKind: 'forecast' }),
+      load(() => repos.weather.alerts(area.id), opts)
+    ])
+  : ([NONE, NONE, NONE, NONE] as const);
+
+const obs = hasData(obsR) ? obsR.data : [];
+const normals = hasData(normalsR) ? normalsR.data : [];
+const sum = (f: (o: (typeof obs)[number]) => number) => obs.reduce((s, o) => s + f(o), 0);
+const hddN = obs.reduce((s, o) => s + dailyNormal(o.date, normals).hdd, 0);
+const cddN = obs.reduce((s, o) => s + dailyNormal(o.date, normals).cdd, 0);
+// A freeze event is the first day of a run of lows at or below 32°F.
+const freezeEvents = obs.filter((o, i) => o.tMinF <= 32 && (i === 0 || obs[i - 1]!.tMinF > 32)).length;
+const vsNormal = (a: number, n: number) => (n > 0 ? `${a >= n ? '+' : ''}${Math.round(((a - n) / n) * 100)}% vs normal ${num(Math.round(n))}` : `normal ${num(Math.round(n))}`);
+const obsErr = obsR.status === 'error' ? obsR.message : undefined;
+
+const grain = g.range === '12m' ? 'month' : 'week';
+const withNormal = obs.map((o) => ({ ...o, hddN: dailyNormal(o.date, normals).hdd, cddN: dailyNormal(o.date, normals).cdd }));
+const b = bucket(withNormal, grain, ['hdd', 'cdd', 'hddN', 'cddN', 'precipIn', 'snowIn']);
+const xs = b.map((x) => ({ label: x.label, tip: grain === 'week' ? `Week of ${x.label}` : `${x.label} ${x.key.slice(0, 4)}` }));
+const v = (k: string) => b.map((x) => Math.round(x.values[k] ?? 0));
+const daily = obs.map((o) => ({ label: new Date(`${o.date}T12:00:00Z`).toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) }));
+const obsSource = area ? `NOAA NCEI GHCN-Daily · station ${area.stationId}` : undefined;
+---
+<Shell title="Weather Intelligence" question="How heat, cold and severe weather are loading the territory, and how that lines up with calls." filters={{ territory: true, range: true }}>
+  <form slot="actions" method="get" class="area-pick">
+    {['territory', 'range', 'simulate'].map((k) => url.searchParams.get(k) && <input type="hidden" name={k} value={url.searchParams.get(k)!} />)}
+    <label>Weather area
+      <select name="area" onchange="this.form.requestSubmit()">{areas.map((a) => <option value={a.id} selected={a.id === area?.id}>{a.name}</option>)}</select>
+    </label>
+    <noscript><button class="btn">Show</button></noscript>
+  </form>
+
+  {area && <p class="muted small">Station <span class="mono">{area.stationId}</span> · NWS grid <span class="mono">{area.nwsGrid}</span> · ZIPs {area.zips.join(', ')}. Weather is stored once per area. Each property points at its area and never carries a copy.</p>}
+
+  <div class="grid cols-4">
+    <Kpi label={`Heating degree days, ${rangeLabel}`} value={num(sum((o) => o.hdd))} detail={vsNormal(sum((o) => o.hdd), hddN)} error={obsErr} />
+    <Kpi label={`Cooling degree days, ${rangeLabel}`} value={num(sum((o) => o.cdd))} detail={vsNormal(sum((o) => o.cdd), cddN)} error={obsErr} />
+    <Kpi label="Extreme days" value={`${obs.filter((o) => o.tMaxF >= 90).length} hot · ${obs.filter((o) => o.tMinF <= 0).length} cold`} detail="Highs ≥ 90°F · lows ≤ 0°F" error={obsErr} />
+    <Kpi label="Freeze · precip · snow" value={`${freezeEvents} · ${sum((o) => o.precipIn).toFixed(1)}″ · ${sum((o) => o.snowIn).toFixed(1)}″`} detail="Freeze events (first day ≤ 32°F), total precipitation, total snowfall" error={obsErr} />
+  </div>
+
+  <div class="grid split">
+    <Panel title="Degree days vs. normal" subtitle={`By ${grain}. The dashed tick is the 1991–2020 normal for the same days.`} result={obsR} source={obsSource}>
+      <div class="two">
+        <div><h3 class="h"><Icon name="flame" size={14} /> Heating degree days</h3>
+          <Columns title="Heating degree days vs normal" buckets={xs} unit=" HDD" height={170} labelEvery={grain === 'week' ? 2 : 1} series={[{ name: 'HDD', color: 'var(--series-2)', values: v('hdd') }]} reference={{ name: 'Normal', values: v('hddN') }} />
+        </div>
+        <div><h3 class="h"><Icon name="snow" size={14} /> Cooling degree days</h3>
+          <Columns title="Cooling degree days vs normal" buckets={xs} unit=" CDD" height={170} labelEvery={grain === 'week' ? 2 : 1} series={[{ name: 'CDD', color: 'var(--series-1)', values: v('cdd') }]} reference={{ name: 'Normal', values: v('cddN') }} />
+        </div>
+      </div>
+    </Panel>
+
+    <div class="grid">
+      <Panel title="Active alerts" subtitle={area ? `NWS ${area.nwsGrid}` : undefined} result={alertsR} source="National Weather Service" emptyText="No active NWS alerts for this area.">
+        <ul class="alerts">
+          {hasData(alertsR) && alertsR.data.map((a) => (
+            <li><Status value={a.severity} /><div><strong>{a.event}</strong><p class="small">{a.headline}</p><p class="muted small">{dateTime(a.onset)} – {dateTime(a.ends)}</p></div></li>
+          ))}
+        </ul>
+      </Panel>
+      <Panel title="7-day forecast" result={forecastR} source={hasData(forecastR) ? forecastR.data!.source.label : 'National Weather Service'} emptyText="No forecast available.">
+        <ol class="fc">
+          {hasData(forecastR) && forecastR.data!.periods.map((p) => (
+            <li>
+              <span class="d">{new Date(`${p.date}T12:00:00Z`).toLocaleString('en-US', { weekday: 'short', timeZone: 'UTC' })}</span>
+              <span class="hi">{p.highF}°</span>
+              <span class="lo">{p.lowF}°</span>
+              <span class="pc" title="Chance of precipitation">{p.precipChance}%</span>
+              <span class="sm">{p.summary}</span>
+            </li>
+          ))}
+        </ol>
+        {hasData(forecastR) && <p class="muted small">Issued {relative(forecastR.data!.issuedAt, now)}</p>}
+      </Panel>
+    </div>
+  </div>
+
+  <Panel title="Daily temperature" subtitle={`${area?.name ?? ''} · ${date(from)} – ${date(to)}`} result={obsR} source={obsSource}>
+    <Lines title="Daily high and low temperature" buckets={daily} unit="°F" height={190} labelEvery={Math.max(1, Math.round(daily.length / 12))}
+      series={[{ name: 'High', color: 'var(--series-2)', values: obs.map((o) => o.tMaxF) }, { name: 'Low', color: 'var(--series-1)', values: obs.map((o) => o.tMinF) }]} />
+  </Panel>
+
+  <WeatherDemand server:defer territory={g.territory} range={g.range} simulate={simulate}>
+    <Skeleton slot="fallback" title="Weather vs. demand" height={340} />
+  </WeatherDemand>
+  <p class="muted small">See <a href={href('/markets', url)}>Market Intelligence</a> for housing stock. Replacement sales by home age, failure rates and weather-event conversion need Sera data, so they aren't built yet.</p>
+</Shell>
+
+<style>
+  .area-pick label { min-width: 200px; }
+  .two { display: grid; gap: 16px; }
+  .two > * { min-width: 0; }
+  .h { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--text-2); font-weight: 600; margin-bottom: 6px; }
+  .alerts { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .alerts li { display: flex; gap: 10px; align-items: flex-start; }
+  .fc { list-style: none; margin: 0 0 8px; padding: 0; display: grid; }
+  .fc li { display: grid; grid-template-columns: 44px 42px 42px 48px 1fr; gap: 8px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .fc li:last-child { border-bottom: 0; }
+  .d { color: var(--text-2); font-weight: 600; }
+  .hi { color: var(--text-1); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .lo { color: var(--text-3); font-variant-numeric: tabular-nums; }
+  .pc { color: var(--accent); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .sm { color: var(--text-2); font-size: 12.5px; }
+</style>

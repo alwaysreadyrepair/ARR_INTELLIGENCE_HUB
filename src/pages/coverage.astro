@@ -1,0 +1,98 @@
+---
+import Shell from '../components/layout/Shell.astro';
+import Panel from '../components/ui/Panel.astro';
+import Kpi from '../components/ui/Kpi.astro';
+import Status from '../components/ui/Status.astro';
+import TerritoryMap from '../components/map/TerritoryMap.astro';
+import { load, hasData } from '../lib/load.ts';
+import { freshness, newest, STALE_AFTER_DAYS } from '../lib/freshness.ts';
+import { enumParam, href, readGlobalFilters } from '../lib/filters.ts';
+import { COUNTY_LABEL, date, num, pct, relative, SOURCE_LABEL } from '../lib/format.ts';
+import { ratio } from '../lib/stats.ts';
+
+const { repos, now, simulate } = Astro.locals;
+const url = Astro.url;
+const g = readGlobalFilters(url);
+const kind = enumParam(url, 'kind', ['zip', 'township'] as const) ?? 'zip';
+const focus = url.searchParams.get('area');
+
+const all = await load(() => repos.coverage.list(), { simulate, now, asOf: (a) => newest(a.map((x) => x.lastRefreshedAt)) });
+const areas = hasData(all) ? all.data : [];
+const inScope = (a: (typeof areas)[number]) => !g.territory || a.id === g.territory || a.townshipId === g.territory;
+const rows = areas.filter((a) => a.kind === kind && inScope(a));
+const zips = areas.filter((a) => a.kind === 'zip' && inScope(a));
+const status = (a: (typeof areas)[number]) => (a.homesIndexed === 0 ? 'missing' : freshness(a.lastRefreshedAt, 'coverage', now));
+const count = (s: string) => zips.filter((a) => status(a) === s).length;
+const missPct = (r: number) => (r === 0 ? '0%' : r < 0.001 ? '<0.1%' : pct(r));
+const err = all.status === 'error' ? all.message : undefined;
+---
+<Shell title="Data Coverage" question="Where our property data is complete, where it's stale, and what to refresh next." filters={{ territory: true, source: false, range: false }}>
+  <div class="grid cols-4">
+    <Kpi label="Current" value={String(count('current'))} detail={`ZIPs refreshed within ${STALE_AFTER_DAYS.coverage} days`} status={count('current') ? 'current' : undefined} error={err} />
+    <Kpi label="Stale" value={String(count('stale'))} detail={`ZIPs older than ${STALE_AFTER_DAYS.coverage} days`} status={count('stale') ? 'stale' : undefined} error={err} />
+    <Kpi label="Missing" value={String(count('missing'))} detail="ZIPs never ingested" status={count('missing') ? 'missing' : undefined} error={err} />
+    <Kpi label="Completeness" value={pct(ratio(zips.reduce((s, a) => s + a.homesIndexed, 0), zips.reduce((s, a) => s + (a.parcelsExpected ?? 0), 0)))} detail="Homes indexed ÷ residential parcels expected" error={err} />
+  </div>
+
+  <Panel title="Coverage map" subtitle="Click a ZIP for its detail." result={all} source="Coverage index">
+    <TerritoryMap areas={zips} />
+  </Panel>
+
+  <Panel title={kind === 'zip' ? 'Coverage by ZIP' : 'Coverage by township'} result={all} source="Coverage index, computed from indexed homes" flush emptyText="No coverage areas for this territory.">
+    <div slot="actions" class="seg" role="group" aria-label="Group by">
+      <a class:list={{ on: kind === 'zip' }} href={href('/coverage', url, { kind: undefined, area: focus })}>ZIP</a>
+      <a class:list={{ on: kind === 'township' }} href={href('/coverage', url, { kind: 'township', area: focus })}>Township</a>
+    </div>
+    <div class="table-wrap"><table class="wide" style="min-width:1240px">
+      <thead>
+        <tr>
+          <th>Area</th><th>Status</th><th class="num">Homes</th><th class="num">Expected</th><th style="min-width:120px">Complete</th>
+          <th>Last refresh</th><th>Source</th>
+          <th class="num" title="Share of indexed homes missing the field">No sq ft</th><th class="num">No year</th><th class="num">No stories</th><th class="num">Heat unknown</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((a) => {
+          const c = a.parcelsExpected ? ratio(a.homesIndexed, a.parcelsExpected) : 0;
+          const s = status(a);
+          return (
+            <tr class:list={{ focus: focus === a.id }} id={a.id}>
+              <td class="nw"><strong>{a.name}</strong><br /><span class="muted small">{COUNTY_LABEL[a.county]} County</span></td>
+              <td><Status value={s} /></td>
+              <td class="num">{num(a.homesIndexed)}</td>
+              <td class="num">{a.parcelsExpected ? `~${num(a.parcelsExpected)}` : '—'}</td>
+              <td><span class="meter" data-tip={`${pct(c)} complete`}><span style={`width:${c * 100}%`}></span></span> <span class="small">{s === 'missing' ? '—' : pct(c)}</span></td>
+              <td title={a.lastRefreshedAt ?? ''}>{a.lastRefreshedAt ? <>{date(a.lastRefreshedAt)}<br /><span class="muted small">{relative(a.lastRefreshedAt, now)}</span></> : <span class="muted">Never</span>}</td>
+              <td class="small nw">{a.source ? SOURCE_LABEL[a.source] : '—'}{a.sourceYear && <><br /><span class="muted">{a.sourceYear} release</span></>}</td>
+              <td class="num">{a.homesIndexed ? missPct(a.missing.sqft) : '—'}</td>
+              <td class="num">{a.homesIndexed ? missPct(a.missing.yearBuilt) : '—'}</td>
+              <td class="num">{a.homesIndexed ? missPct(a.missing.stories) : '—'}</td>
+              <td class="num">{a.homesIndexed ? missPct(a.missing.heatingType) : '—'}</td>
+              <td>
+                {s !== 'current' && (
+                  <a class="btn small-btn" href={href('/imports/new', url, { county: a.county, area: a.kind === 'township' ? a.id : a.townshipId ?? a.id })} title="Opens the import planner for this area. Nothing runs until an import is started.">
+                    {s === 'missing' ? 'Plan import' : 'Refresh area'}
+                  </a>
+                )}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table></div>
+  </Panel>
+</Shell>
+
+<style>
+  .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; }
+  .seg a { padding: 4px 12px; font-size: 12.5px; color: var(--text-2); }
+  .seg a.on { background: var(--accent-dim); color: var(--text-1); }
+  .seg a:hover { text-decoration: none; background: var(--surface-3); }
+  .meter { display: inline-block; width: 70px; height: 8px; background: rgba(255, 255, 255, 0.06); border-radius: 0 4px 4px 0; vertical-align: middle; }
+  .meter span { display: block; height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; }
+  .nw { white-space: nowrap; }
+  tr.focus { background: var(--accent-dim); }
+  .small-btn { min-height: 28px; padding: 3px 10px; font-size: 12px; }
+  table td:first-child, table th:first-child { padding-left: 18px; }
+</style>

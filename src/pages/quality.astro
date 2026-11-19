@@ -1,0 +1,92 @@
+---
+import Shell from '../components/layout/Shell.astro';
+import Panel from '../components/ui/Panel.astro';
+import Kpi from '../components/ui/Kpi.astro';
+import Status from '../components/ui/Status.astro';
+import BarList from '../components/charts/BarList.astro';
+import { load, hasData } from '../lib/load.ts';
+import { newest } from '../lib/freshness.ts';
+import { enumParam, href } from '../lib/filters.ts';
+import { dateTime, num, relative } from '../lib/format.ts';
+import type { DataQualityIssue, IssueKind } from '../domain/types.ts';
+
+const { repos, now, simulate } = Astro.locals;
+const url = Astro.url;
+
+const KINDS: { key: IssueKind; label: string; what: string }[] = [
+  { key: 'duplicate-parcel', label: 'Duplicate parcels', what: 'Same address under more than one PIN' },
+  { key: 'address-match-failure', label: 'Address-match failures', what: 'Source address did not normalise to the Assessor spelling' },
+  { key: 'missing-sqft', label: 'Missing square footage', what: 'Sizing falls back to manual entry' },
+  { key: 'missing-year-built', label: 'Missing year built', what: 'Excluded from age analysis' },
+  { key: 'implausible-value', label: 'Implausible values', what: 'Outside plausible ranges for the property class' },
+  { key: 'large-change', label: 'Large changes between releases', what: 'A field moved more than the threshold between source releases' }
+];
+const SEVERITIES = ['high', 'medium', 'low'] as const satisfies readonly DataQualityIssue['severity'][];
+const STATUSES = ['open', 'in-review', 'resolved', 'ignored'] as const satisfies readonly DataQualityIssue['status'][];
+const kind = enumParam(url, 'kind', KINDS.map((k) => k.key));
+const severity = enumParam(url, 'severity', SEVERITIES);
+const status = enumParam(url, 'status', STATUSES) ?? (url.searchParams.has('status') ? undefined : 'open');
+
+const [all, queue] = await Promise.all([
+  load(() => repos.quality.list(), { simulate, now, asOf: (i) => newest(i.map((x) => x.detectedAt)) }),
+  load(() => repos.quality.list({ kind, severity, status }), { simulate, now, asOf: (i) => newest(i.map((x) => x.detectedAt)) })
+]);
+const everything = hasData(all) ? all.data : [];
+const open = everything.filter((i) => i.status === 'open' || i.status === 'in-review');
+const err = all.status === 'error' ? all.message : undefined;
+const label = (k: IssueKind) => KINDS.find((x) => x.key === k)?.label ?? k;
+const link = (params: Record<string, string | undefined>) => href('/quality', url, { kind, severity, status: status ?? 'all', ...params });
+---
+<Shell title="Data Quality" question="What's wrong or doubtful in the property data, and what needs a person to look at it." filters={{}}>
+  <div class="grid cols-4">
+    <Kpi label="Open issues" value={num(open.length)} detail="Open or in review" error={err} />
+    <Kpi label="High severity" value={num(open.filter((i) => i.severity === 'high').length)} detail="Duplicates and implausible values" status={open.some((i) => i.severity === 'high') ? 'high' : undefined} statusLabel="Review first" error={err} />
+    <Kpi label="In review" value={num(everything.filter((i) => i.status === 'in-review').length)} detail="Claimed by someone" error={err} />
+    <Kpi label="Resolved" value={num(everything.filter((i) => i.status === 'resolved').length)} detail="All time" error={err} />
+  </div>
+
+  <div class="grid split">
+    <Panel title="Review queue" subtitle={hasData(queue) ? `${num(queue.data.length)} issues` : undefined} result={queue} source="Quality rules and import jobs" flush emptyText="Nothing in the queue for these filters.">
+      <div slot="actions" class="fl">
+        <form method="get" class="fl">
+          {kind && <input type="hidden" name="kind" value={kind} />}
+          <label class="visually-hidden" for="sev">Severity</label>
+          <select id="sev" name="severity" onchange="this.form.requestSubmit()"><option value="">Any severity</option>{SEVERITIES.map((s) => <option value={s} selected={s === severity}>{s}</option>)}</select>
+          <label class="visually-hidden" for="st">Status</label>
+          <select id="st" name="status" onchange="this.form.requestSubmit()"><option value="all" selected={!status}>Any status</option>{STATUSES.map((s) => <option value={s} selected={s === status}>{s}</option>)}</select>
+          <noscript><button class="btn">Filter</button></noscript>
+        </form>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Severity</th><th>Issue</th><th>Record</th><th>Detected</th><th>Status</th></tr></thead>
+        <tbody>
+          {hasData(queue) && queue.data.map((i) => (
+            <tr>
+              <td><Status value={i.severity} /></td>
+              <td><strong class="small">{label(i.kind)}</strong><br />{i.summary}</td>
+              <td class="small">
+                {i.propertyId ? <a href={href(`/properties/${i.propertyId}`, url)}>Property</a> : null}
+                {i.areaId && <><br /><a href={href('/coverage', url, { area: i.areaId, kind: i.areaId.startsWith('twp-') ? 'township' : undefined })} class="muted">{i.areaId.replace(/^(zip|twp)-/, '')}</a></>}
+              </td>
+              <td class="small" title={dateTime(i.detectedAt)}>{relative(i.detectedAt, now)}<br /><span class="mono muted">{i.detectedBy}</span></td>
+              <td><Status value={i.status} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table></div>
+      <p class="note muted small">Resolving, ignoring or assigning issues needs real sign-in and an audit trail, so the queue is read-only in v1.</p>
+    </Panel>
+
+    <Panel title="By kind" subtitle="Open and in-review issues. Click to filter." result={all} source="Quality rules">
+      <BarList color="var(--series-3)" rows={KINDS.map((k) => ({ label: k.label, value: open.filter((i) => i.kind === k.key).length, detail: k.what, href: link({ kind: k.key }) }))} />
+      {kind && <p class="small"><a href={link({ kind: undefined })}>Clear kind filter ({label(kind)})</a></p>}
+    </Panel>
+  </div>
+</Shell>
+
+<style>
+  .fl { display: flex; gap: 8px; }
+  .fl select { min-width: 130px; min-height: 30px; padding: 4px 8px; }
+  .note { padding: 10px 18px 2px; }
+  table td:first-child, table th:first-child { padding-left: 18px; }
+</style>

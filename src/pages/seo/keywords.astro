@@ -1,0 +1,65 @@
+---
+import Shell from '../../components/layout/Shell.astro';
+import SeoTabs from '../../components/seo/SeoTabs.astro';
+import Panel from '../../components/ui/Panel.astro';
+import Columns from '../../components/charts/Columns.astro';
+import BarList from '../../components/charts/BarList.astro';
+import { load, hasData } from '../../lib/load.ts';
+import { num } from '../../lib/format.ts';
+import { sentence, SERVICE_LABEL } from '../../lib/seo/stats.ts';
+import type { KeywordMetric } from '../../domain/seo.ts';
+
+const { repos, now, simulate } = Astro.locals;
+const seo = repos.seo;
+const takenAt = await seo.takenAt().catch(() => null);
+const kw = await load(() => seo.keywords(), { simulate, now, asOf: () => takenAt, staleKind: 'seo' });
+const rows = hasData(kw) ? [...kw.data].sort((a, b) => (b.searchVolume ?? 0) - (a.searchVolume ?? 0)) : [];
+const months = rows[0]?.monthly.map((m) => m.month) ?? [];
+const GROUP: Record<string, string> = { furnace: 'Heating', boiler: 'Heating', maintenance: 'Heating', ac: 'Cooling', 'heat-pump': 'Both', emergency: 'Both', general: 'Both' };
+const sumBy = (g: string) => months.map((_, i) => rows.filter((r) => GROUP[r.service] === g).reduce((s, r) => s + (r.monthly[i]?.volume ?? 0), 0));
+const monthLabel = (m: string) => new Date(`${m}-15T12:00:00Z`).toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+const byService = [...new Set(rows.map((r) => r.service))].map((sv) => ({ label: SERVICE_LABEL[sv] ?? sv, value: rows.filter((r) => r.service === sv).reduce((s, r) => s + (r.searchVolume ?? 0), 0) })).sort((a, b) => b.value - a.value);
+const peak = (r: KeywordMetric) => r.monthly.reduce((a, b) => (b.volume > a.volume ? b : a), r.monthly[0] ?? { month: '', volume: 0 });
+const money = (n: number | null) => (n == null ? '—' : `$${n.toFixed(2)}`);
+---
+<Shell title="Keyword demand" question="How many people in the Chicago market search for each service, when in the year they search, and what a click costs in Google Ads." filters={{}}>
+  <SeoTabs />
+
+  <div class="grid split">
+  <Panel title="Search demand by month" subtitle="Monthly Google searches for the tracked keywords, grouped by season. Last 12 months." result={kw} source="DataForSEO Keywords Data (Google Ads search volume, Chicago DMA)" emptyText="No keyword data yet.">
+    {months.length > 0 && (
+      <Columns title="Monthly searches for tracked keywords by season" height={220} unit=" searches"
+        buckets={months.map((m) => ({ label: monthLabel(m), tip: m }))}
+        series={[{ name: 'Heating', color: 'var(--series-2)', values: sumBy('Heating') }, { name: 'Cooling', color: 'var(--series-1)', values: sumBy('Cooling') }, { name: 'Year-round', color: 'var(--series-3)', values: sumBy('Both') }]} />
+    )}
+  </Panel>
+  <Panel title="Demand by service" subtitle="Average monthly searches across the tracked keywords for each service." result={kw} source="DataForSEO Keywords Data (Google Ads)" emptyText="No keyword data yet.">
+    <BarList rows={byService} />
+  </Panel>
+  </div>
+
+  <Panel title="Tracked keywords" subtitle="Average monthly searches, Google Ads cost per click and competition. The bars show each keyword's own 12-month shape." result={kw} source="DataForSEO Keywords Data (Google Ads)" flush emptyText="No keyword data yet.">
+    <div class="table-wrap"><table>
+      <thead><tr><th>Keyword</th><th>Service</th><th class="num">Searches / mo</th><th class="num">CPC</th><th>Competition</th><th>Seasonality</th><th>Peak</th></tr></thead>
+      <tbody>{rows.map((r) => { const top = Math.max(1, ...r.monthly.map((m) => m.volume)); return (
+        <tr>
+          <td>{sentence(r.keyword)}</td>
+          <td>{SERVICE_LABEL[r.service]}</td>
+          <td class="num">{num(r.searchVolume)}</td>
+          <td class="num">{money(r.cpc)}</td>
+          <td>{r.competition ? sentence(r.competition.toLowerCase()) : '—'}</td>
+          <td><span class="spark" role="img" aria-label={`Monthly searches: ${r.monthly.map((m) => `${monthLabel(m.month)} ${m.volume}`).join(', ')}`}>{r.monthly.map((m) => <i style={`height:${Math.max(2, (m.volume / top) * 22)}px`} data-tip={`${monthLabel(m.month)}: ${num(m.volume)}`}></i>)}</span></td>
+          <td>{r.monthly.length ? monthLabel(peak(r).month) : '—'}</td>
+        </tr>
+      ); })}</tbody>
+    </table></div>
+  </Panel>
+
+  <p class="muted small">Volumes are Google Ads estimates for the Chicago market, rounded by Google. They size demand; they are not ARR's traffic.</p>
+</Shell>
+
+<style>
+  table td:first-child, table th:first-child { padding-left: 18px; }
+  .spark { display: inline-flex; align-items: flex-end; gap: 2px; height: 22px; }
+  .spark i { width: 5px; background: var(--series-1); border-radius: 1px 1px 0 0; }
+</style>

@@ -1,0 +1,33 @@
+---
+/* Horizontal bars as HTML, for ranked categories with long labels (territories, decades, issue kinds).
+ * Values are printed beside every bar, so it doubles as its own table. */
+import { num, pct } from '../../lib/format.ts';
+
+interface Props {
+  rows: { label: string; value: number; detail?: string; href?: string }[];
+  color?: string;
+  /** Show values as a share of this total instead of raw counts. */
+  shareOf?: number;
+  max?: number;
+}
+const { rows, color = 'var(--series-1)', shareOf, max } = Astro.props;
+const top = max ?? Math.max(1, ...rows.map((r) => r.value));
+---
+<ul class="bars">
+  {rows.map((r) => (
+    <li data-tip={`${r.label}: ${num(r.value)}${shareOf ? ` (${pct(r.value / shareOf)})` : ''}${r.detail ? `\n${r.detail}` : ''}`}>
+      <span class="lbl">{r.href ? <a href={r.href}>{r.label}</a> : r.label}</span>
+      <span class="track"><span class="fill" style={`width:${(r.value / top) * 100}%;background:${color}`}></span></span>
+      <span class="val num">{shareOf ? pct(r.value / shareOf) : num(r.value)}</span>
+    </li>
+  ))}
+</ul>
+
+<style>
+  .bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+  li { display: grid; grid-template-columns: minmax(90px, 34%) 1fr 64px; gap: 10px; align-items: center; font-size: 12.5px; }
+  .lbl { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .track { height: 10px; background: rgba(255, 255, 255, 0.04); border-radius: 0 4px 4px 0; }
+  .fill { display: block; height: 100%; border-radius: 0 4px 4px 0; min-width: 2px; }
+  .val { color: var(--text-1); }
+</style>

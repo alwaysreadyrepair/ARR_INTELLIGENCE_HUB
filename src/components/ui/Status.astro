@@ -1,0 +1,50 @@
+---
+/* A status is always an icon plus a label plus a colour, never colour alone. Covers freshness, job states,
+ * issue severity and workflow status. */
+import Icon from './Icon.astro';
+
+interface Props { value: string; label?: string }
+const { value, label } = Astro.props;
+
+type Tone = 'good' | 'warn' | 'serious' | 'critical' | 'info' | 'neutral';
+const MAP: Record<string, [Tone, string, string]> = {
+  current: ['good', 'check', 'Current'],
+  stale: ['warn', 'clock', 'Stale'],
+  missing: ['critical', 'x', 'Missing'],
+  succeeded: ['good', 'check', 'Succeeded'],
+  running: ['info', 'refresh', 'Running'],
+  queued: ['neutral', 'clock', 'Queued'],
+  partial: ['warn', 'alert', 'Partial'],
+  failed: ['critical', 'x', 'Failed'],
+  cancelled: ['neutral', 'x', 'Cancelled'],
+  high: ['critical', 'alert', 'High'],
+  medium: ['serious', 'alert', 'Medium'],
+  low: ['neutral', 'info', 'Low'],
+  open: ['warn', 'dot', 'Open'],
+  'in-review': ['info', 'search', 'In review'],
+  resolved: ['good', 'check', 'Resolved'],
+  ignored: ['neutral', 'x', 'Ignored'],
+  active: ['good', 'check', 'Active'],
+  paused: ['neutral', 'pause', 'Paused'],
+  revoked: ['critical', 'x', 'Revoked'],
+  minor: ['neutral', 'info', 'Minor'],
+  moderate: ['warn', 'alert', 'Moderate'],
+  severe: ['serious', 'alert', 'Severe'],
+  extreme: ['critical', 'alert', 'Extreme']
+};
+const [tone, icon, text] = MAP[value] ?? ['neutral', 'dot', value];
+---
+<span class:list={['status', tone]}><Icon name={icon} size={12} />{label ?? text}</span>
+
+<style>
+  .status {
+    display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px 2px 6px; border-radius: 999px; font-size: 11.5px;
+    font-weight: 600; white-space: nowrap; border: 1px solid currentColor; line-height: 1.5;
+  }
+  .good { color: var(--good); background: rgba(63, 178, 127, 0.1); }
+  .warn { color: var(--warn); background: rgba(255, 204, 4, 0.08); }
+  .serious { color: var(--serious); background: rgba(240, 138, 36, 0.1); }
+  .critical { color: var(--critical); background: rgba(255, 77, 82, 0.1); }
+  .info { color: var(--accent); background: var(--accent-dim); }
+  .neutral { color: var(--text-2); background: rgba(255, 255, 255, 0.04); border-color: var(--border-strong); }
+</style>

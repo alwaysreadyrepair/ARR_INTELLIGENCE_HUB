@@ -1,0 +1,135 @@
+---
+import Shell from '../../components/layout/Shell.astro';
+import SeoTabs from '../../components/seo/SeoTabs.astro';
+import Panel from '../../components/ui/Panel.astro';
+import Kpi from '../../components/ui/Kpi.astro';
+import Icon from '../../components/ui/Icon.astro';
+import Lines from '../../components/charts/Lines.astro';
+import BarList from '../../components/charts/BarList.astro';
+import { load, hasData, errorOf } from '../../lib/load.ts';
+import { enumParam, href } from '../../lib/filters.ts';
+import { num, pct } from '../../lib/format.ts';
+import { ratio } from '../../lib/stats.ts';
+import { ENGINE_COLOR, ENGINE_LABEL, ENGINE_SHORT, latest, mentionTrend, pct100, SERVICE_LABEL, shareOfVoice, shortDate, topCitedDomains } from '../../lib/seo/stats.ts';
+import type { AiAnswer, AiEngine } from '../../domain/seo.ts';
+
+const { repos, now, simulate } = Astro.locals;
+const url = Astro.url;
+const seo = repos.seo;
+const opts = { simulate, now };
+const takenAt = await seo.takenAt().catch(() => null);
+const asOf = () => takenAt;
+
+const [targets, ai] = await Promise.all([
+  load(() => seo.targets(), opts),
+  load(() => seo.aiAnswers(), { ...opts, asOf, staleKind: 'seo' })
+]);
+const t = hasData(targets) ? targets.data : null;
+const all = hasData(ai) ? ai.data : [];
+const engines = t?.engines ?? [];
+const promptId = t?.prompts.some((p) => p.id === url.searchParams.get('prompt')) ? url.searchParams.get('prompt')! : undefined;
+const prompt = t?.prompts.find((p) => p.id === promptId);
+const engine = enumParam(url, 'engine', engines as readonly AiEngine[]);
+
+const { date: latestDate, rows: current } = latest(all);
+const scoped = engine ? current.filter((a) => a.engine === engine) : current;
+const answered = scoped.filter((a) => a.answered);
+const trend = t ? mentionTrend(all, engines) : [];
+const sov = t ? shareOfVoice(scoped, t.brand, t.competitors) : [];
+const cited = topCitedDomains(answered, 10);
+const cell = (pid: string, e: AiEngine) => current.find((a) => a.promptId === pid && a.engine === e);
+const competitorName = (d: string) => t?.competitors.find((c) => c.domain === d)?.name ?? d;
+const history = (pid: string, e: AiEngine) => all.filter((a) => a.promptId === pid && a.engine === e);
+const verdict = (a: AiAnswer | undefined) => (!a ? 'none' : !a.answered ? 'noanswer' : a.cited ? 'cited' : a.mentioned ? 'named' : 'missing');
+const VERDICT: Record<string, string> = { none: 'Not checked', noanswer: 'No answer', cited: 'Named + cited', named: 'Named', missing: 'Not named' };
+---
+<Shell title="AI answers (AEO)" question="When homeowners ask ChatGPT, Perplexity, Gemini or Google's AI Overview for HVAC help nearby, does the answer name ARR, cite our site, or send them to someone else?" filters={{}}>
+  <SeoTabs />
+
+  <div class="grid cols-4">
+    {engines.map((e) => {
+      const rows = current.filter((a) => a.engine === e && a.answered);
+      const m = rows.filter((a) => a.mentioned).length;
+      const c = rows.filter((a) => a.cited).length;
+      return <Kpi label={ENGINE_LABEL[e]} value={hasData(ai) ? pct(ratio(m, rows.length)) : '—'} detail={hasData(ai) ? `Named in ${num(m)} of ${num(rows.length)} answers · cited in ${num(c)}` : undefined} href={href('/seo/ai', url, { engine: e === engine ? undefined : e })} error={errorOf(ai)} />;
+    })}
+  </div>
+
+  <Panel title="Prompt by engine" subtitle={`Latest refresh${latestDate ? `, week of ${shortDate(latestDate)}` : ''}. Pick a prompt to read the answers.`} result={ai} source="DataForSEO AI Optimization (LLM responses) · Google SERP (AI Overview)" flush emptyText="No AI answers collected yet.">
+    <div class="table-wrap"><table class="matrix">
+      <thead><tr><th>Prompt</th>{engines.map((e) => <th>{ENGINE_LABEL[e]}</th>)}</tr></thead>
+      <tbody>
+        {t?.prompts.map((p) => (
+          <tr class:list={{ cur: p.id === promptId }}>
+            <td><a href={href('/seo/ai', url, { prompt: p.id === promptId ? undefined : p.id, engine })}>{p.text}</a><span class="muted small svc">{SERVICE_LABEL[p.service]}</span></td>
+            {engines.map((e) => { const v = verdict(cell(p.id, e)); return <td><span class:list={['v', v]}><Icon name={v === 'cited' ? 'link' : v === 'named' ? 'check' : v === 'missing' ? 'x' : 'dot'} size={12} />{VERDICT[v]}</span></td>; })}
+          </tr>
+        ))}
+      </tbody>
+    </table></div>
+  </Panel>
+
+  {prompt && (
+    <Panel title="The answers" subtitle={`"${prompt.text}"`} result={ai} source="DataForSEO AI Optimization · Google SERP">
+      <a slot="actions" class="small" href={href('/seo/ai', url, { prompt: undefined, engine })}>Close</a>
+      <div class="answers">
+        {engines.map((e) => {
+          const a = cell(prompt.id, e);
+          const h = history(prompt.id, e);
+          return (
+            <article class="answer">
+              <header><strong style={`color:${ENGINE_COLOR[e]}`}>{ENGINE_LABEL[e]}</strong> <span class:list={['v', verdict(a)]}>{VERDICT[verdict(a)]}</span></header>
+              {a?.answered ? <blockquote>{a.excerpt || 'No excerpt captured.'}</blockquote> : <p class="muted small">{e === 'google_ai_overview' ? 'Google showed no AI Overview for this search.' : 'No answer collected.'}</p>}
+              {a && a.competitorsMentioned.length > 0 && <p class="small">Also named: {a.competitorsMentioned.map(competitorName).join(', ')}</p>}
+              {a && a.citedDomains.length > 0 && <p class="small muted">Cites: {a.citedDomains.join(', ')}</p>}
+              <p class="hist" aria-label={`Named in ${h.filter((x) => x.mentioned).length} of ${h.length} weekly checks`}>
+                {h.map((x) => <i class:list={[verdict(x)]} data-tip={`${shortDate(x.date)}: ${VERDICT[verdict(x)]}`}></i>)}
+                <span class="muted small">{h.filter((x) => x.mentioned).length}/{h.length} weeks</span>
+              </p>
+            </article>
+          );
+        })}
+      </div>
+    </Panel>
+  )}
+
+  <div class="grid split">
+    <Panel title="Share of answers naming ARR" subtitle="Per engine and weekly refresh. Answers that never came back are left out of each week's share." result={ai} source="DataForSEO AI Optimization · Google SERP" emptyText="No AI answers collected yet.">
+      {trend.length > 0 && (
+        <Lines title="Share of AI answers naming ARR, by engine" unit="%" height={220} labelEvery={Math.ceil(trend.length / 6)}
+          buckets={trend.map((d) => ({ label: shortDate(d.date), tip: `Week of ${shortDate(d.date)}` }))}
+          series={(engine ? [engine] : engines).map((e) => ({ name: ENGINE_SHORT[e], color: ENGINE_COLOR[e], values: trend.map((d) => pct100(d.byEngine[e]!.mentioned, d.byEngine[e]!.answered)) }))} />
+      )}
+    </Panel>
+    <Panel title="Who AI assistants name" subtitle={`${engine ? ENGINE_LABEL[engine] : 'All engines'}, latest refresh. One answer can name several companies.`} result={ai} source="DataForSEO AI Optimization" emptyText="No AI answers collected yet.">
+      {sov.length > 0 && <BarList rows={sov.map((s) => ({ label: s.own ? "ARR (us)" : s.name, value: s.answers }))} shareOf={answered.length || undefined} />}
+    </Panel>
+  </div>
+
+  <Panel title="Sites the answers cite" subtitle="Where AI engines get their information about local HVAC companies. A listing or review profile on a much-cited site is a way into the answer." result={ai} source="DataForSEO AI Optimization · Google SERP" emptyText="No citations in the latest answers.">
+    {cited.length > 0 && <BarList rows={cited.map((c) => ({ label: c.domain === t?.domain ? `${c.domain} (us)` : c.domain, value: c.count }))} shareOf={answered.length || undefined} color="var(--series-3)" />}
+    <p class="muted small note">Share of {num(answered.length)} answered prompts that cite each site at least once.</p>
+  </Panel>
+</Shell>
+
+<style>
+  .matrix td:first-child, .matrix th:first-child { padding-left: 18px; }
+  .matrix td:first-child { min-width: 280px; }
+  .svc { display: block; margin-top: 2px; }
+  tr.cur { background: var(--accent-dim); }
+  .v { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 12.5px; font-weight: 600; }
+  .v.cited { color: var(--good); }
+  .v.named { color: var(--accent); }
+  .v.missing { color: var(--text-3); font-weight: 500; }
+  .v.noanswer, .v.none { color: var(--text-3); font-weight: 500; font-style: italic; }
+  .answers { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .answer { display: grid; gap: 8px; align-content: start; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+  .answer header { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  blockquote { margin: 0; padding-left: 10px; border-left: 2px solid var(--border-strong); color: var(--text-2); font-size: 13px; }
+  .hist { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
+  .hist i { width: 10px; height: 10px; border-radius: 2px; background: rgba(255, 255, 255, 0.08); }
+  .hist i.named { background: var(--accent); }
+  .hist i.cited { background: var(--good); }
+  .hist span { margin-left: 6px; }
+  .note { margin-top: 10px; }
+</style>

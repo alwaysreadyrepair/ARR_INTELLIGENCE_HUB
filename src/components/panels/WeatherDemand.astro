@@ -1,0 +1,81 @@
+---
+/* Weather vs. demand: degree days on top, calls underneath, sharing one time axis. Two charts rather than a dual
+ * axis, because the units differ. The Pearson r is reported as correlation only.
+ * Rendered as a server island (`server:defer`) by the pages that use it, so its Skeleton shows while it loads.
+ * Astro.url inside an island is the island's own request, so everything it needs comes in as props. */
+import { bucket } from '../../lib/charts.ts';
+import { rangeDates, type RangeKey } from '../../lib/filters.ts';
+import { load, type Simulate } from '../../lib/load.ts';
+import { newest } from '../../lib/freshness.ts';
+import { pearson } from '../../lib/stats.ts';
+import { weatherAreaFor } from '../../lib/weather.ts';
+import Panel from '../ui/Panel.astro';
+import Columns from '../charts/Columns.astro';
+import Lines from '../charts/Lines.astro';
+
+interface Props { territory?: string; range: RangeKey; simulate?: Simulate; compact?: boolean }
+const { territory, range, simulate = null, compact } = Astro.props;
+const { repos, now } = Astro.locals;
+const { from, to } = rangeDates(range, now);
+
+const result = await load(async () => {
+  const [areas, zips, territories] = await Promise.all([repos.weather.areas(), repos.coverage.list({ kind: 'zip' }), repos.coverage.list({ kind: 'township' })]);
+  const area = weatherAreaFor(territory, zips, areas);
+  if (!area) return null;
+  const [obs, demand] = await Promise.all([repos.weather.observations(area.id, from, to), repos.demand.daily(from, to, territory)]);
+  if (obs.length === 0) return null;
+  const byDate = new Map<string, { date: string; hdd: number; cdd: number; heating: number; cooling: number }>();
+  for (const o of obs) byDate.set(o.date, { date: o.date, hdd: o.hdd, cdd: o.cdd, heating: 0, cooling: 0 });
+  for (const d of demand) {
+    const row = byDate.get(d.date);
+    if (row) { row.heating += d.heatingCalls; row.cooling += d.coolingCalls; }
+  }
+  const rows = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  const label = territory ? territories.find((t) => t.id === territory)?.name ?? territory : 'All territories';
+  return { area, rows, label, obsAsOf: obs[0]!.source.retrievedAt, demandAsOf: newest(demand.map((d) => d.source.retrievedAt)), hasDemand: demand.length > 0 };
+}, { simulate, isEmpty: (d) => d == null, asOf: (d) => d?.obsAsOf ?? null, staleKind: 'weatherObs', now });
+
+const data = result.status === 'ok' || result.status === 'stale' ? result.data! : null;
+const grain = range === '30d' ? 'day' : range === '90d' ? 'week' : 'month';
+const buckets = data
+  ? grain === 'day'
+    ? data.rows.map((r) => ({ key: r.date, label: new Date(`${r.date}T12:00:00Z`).toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }), values: { hdd: r.hdd, cdd: r.cdd, heating: r.heating, cooling: r.cooling } as Record<string, number>, days: 1 }))
+    : bucket(data.rows, grain, ['hdd', 'cdd', 'heating', 'cooling'])
+  : [];
+const xs = buckets.map((b) => ({ label: b.label, tip: grain === 'week' ? `Week of ${b.label}` : grain === 'month' ? `${b.label} ${b.key.slice(0, 4)}` : b.label }));
+const every = grain === 'day' ? 5 : grain === 'week' ? 2 : 1;
+const col = (k: string) => buckets.map((b) => Number(b.values[k] ?? 0));
+const rHeat = data?.hasDemand ? pearson(col('hdd'), col('heating')) : null;
+const rCool = data?.hasDemand ? pearson(col('cdd'), col('cooling')) : null;
+const fmtR = (r: number | null) => (r == null ? 'n/a' : r.toFixed(2));
+---
+<Panel title="Weather vs. demand" subtitle={data ? `${data.label} · ${data.area.name} weather · by ${grain}` : undefined} result={result}
+  source={data ? `NOAA NCEI (station ${data.area.stationId}) · Sera service calls` : undefined}
+  emptyText="No weather observations in this range.">
+  {data && (
+    <div class="wd">
+      <Columns title="Heating and cooling degree days" buckets={xs} unit=" DD" labelEvery={every} height={compact ? 150 : 180}
+        series={[{ name: 'HDD (heating)', color: 'var(--series-2)', values: col('hdd') }, { name: 'CDD (cooling)', color: 'var(--series-1)', values: col('cdd') }]} />
+      {data.hasDemand ? (
+        <Lines title="Service calls" buckets={xs} labelEvery={every} height={compact ? 140 : 170}
+          series={[{ name: 'Heating calls', color: 'var(--series-2)', values: col('heating') }, { name: 'Cooling calls', color: 'var(--series-1)', values: col('cooling') }]} />
+      ) : (
+        <p class="muted small">No demand data for this territory yet. Calls come from Sera, which isn't connected.</p>
+      )}
+      {data.hasDemand && (
+        <p class="corr">
+          <span>r(HDD, heating calls) = <strong>{fmtR(rHeat)}</strong></span>
+          <span>r(CDD, cooling calls) = <strong>{fmtR(rCool)}</strong></span>
+          <span class="muted">Correlation over {buckets.length} {grain}s. It doesn't show that weather caused the calls. Demand figures are mock until Sera is connected.</span>
+        </p>
+      )}
+    </div>
+  )}
+</Panel>
+
+<style>
+  .wd { display: grid; gap: 14px; }
+  .wd > * { min-width: 0; }
+  .corr { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 12.5px; color: var(--text-2); border-top: 1px dashed var(--border); padding-top: 10px; }
+  .corr strong { color: var(--text-1); font-variant-numeric: tabular-nums; }
+</style>

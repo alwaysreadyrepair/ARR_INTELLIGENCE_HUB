@@ -1,0 +1,53 @@
+---
+import Shell from '../../components/layout/Shell.astro';
+import SeoTabs from '../../components/seo/SeoTabs.astro';
+import Panel from '../../components/ui/Panel.astro';
+import BarList from '../../components/charts/BarList.astro';
+import { load, hasData } from '../../lib/load.ts';
+import { num } from '../../lib/format.ts';
+import type { CompetitorProfile } from '../../domain/seo.ts';
+
+const { repos, now, simulate } = Astro.locals;
+const seo = repos.seo;
+const takenAt = await seo.takenAt().catch(() => null);
+const comp = await load(() => seo.competitors(), { simulate, now, asOf: () => takenAt, staleKind: 'seo' });
+const rows = hasData(comp) ? [...comp.data].sort((a, b) => Number(b.own) - Number(a.own) || b.trackedAppearances - a.trackedAppearances) : [];
+const bar = (key: keyof CompetitorProfile) => rows.map((r) => ({ label: r.own ? "ARR (us)" : r.name, value: Number(r[key] ?? 0) })).sort((a, b) => b.value - a.value);
+---
+<Shell title="Competitors" question="Which contractors show up in the searches ARR cares about, and how their search footprint compares to ours." filters={{}}>
+  <SeoTabs />
+
+  <Panel title="Search footprint" subtitle="Competitors are the domains that show up most in our own tracked searches, minus directories like Yelp and Angi." result={comp} source="DataForSEO Labs (US) · DataForSEO Backlinks · our rank checks" flush emptyText="No competitor data yet.">
+    <div class="table-wrap"><table>
+      <thead><tr><th>Company</th><th class="num">In our searches</th><th class="num">Keywords ranked</th><th class="num">Top-3 keywords</th><th class="num">Est. visits / mo</th><th class="num">Referring domains</th><th class="num">Backlinks</th></tr></thead>
+      <tbody>{rows.map((r) => (
+        <tr class:list={{ us: r.own }}>
+          <td><strong>{r.name}</strong><span class="muted small d">{r.domain}</span></td>
+          <td class="num">{num(r.trackedAppearances)}</td>
+          <td class="num">{num(r.organicKeywords)}</td>
+          <td class="num">{num(r.top3Keywords)}</td>
+          <td class="num">{num(r.estTraffic)}</td>
+          <td class="num">{num(r.referringDomains)}</td>
+          <td class="num">{num(r.backlinks)}</td>
+        </tr>
+      ))}</tbody>
+    </table></div>
+  </Panel>
+
+  <div class="grid cols-2">
+    <Panel title="Showing up in our searches" subtitle="Top-10 appearances across the tracked keyword × city checks, latest refresh." result={comp} source="Our rank checks (DataForSEO SERP)">
+      <BarList rows={bar('trackedAppearances')} />
+    </Panel>
+    <Panel title="Referring domains" subtitle="Distinct sites linking to each domain. Links from local and trade sites are what move local rankings." result={comp} source="DataForSEO Backlinks">
+      <BarList rows={bar('referringDomains')} color="var(--series-3)" />
+    </Panel>
+  </div>
+
+  <p class="muted small">"Est. visits" is DataForSEO's traffic estimate from rankings and click-through curves, the same for every company here. It is useful for comparison, not as anyone's real analytics.</p>
+</Shell>
+
+<style>
+  table td:first-child, table th:first-child { padding-left: 18px; }
+  .d { display: block; }
+  tr.us { background: var(--accent-dim); }
+</style>

@@ -1,0 +1,108 @@
+---
+import Shell from '../../components/layout/Shell.astro';
+import SeoTabs from '../../components/seo/SeoTabs.astro';
+import Pos from '../../components/seo/Pos.astro';
+import Panel from '../../components/ui/Panel.astro';
+import Kpi from '../../components/ui/Kpi.astro';
+import Status from '../../components/ui/Status.astro';
+import Lines from '../../components/charts/Lines.astro';
+import BarList from '../../components/charts/BarList.astro';
+import { load, hasData, errorOf } from '../../lib/load.ts';
+import { href } from '../../lib/filters.ts';
+import { num, pct, usd } from '../../lib/format.ts';
+import { ratio } from '../../lib/stats.ts';
+import { auditIssues, ENGINE_COLOR, ENGINE_LABEL, ENGINE_SHORT, latest, localSummary, mentionTrend, pct100, rankChanges, rankTrend, sentence, shareOfVoice, shortDate } from '../../lib/seo/stats.ts';
+
+const { repos, now, simulate } = Astro.locals;
+const url = Astro.url;
+const seo = repos.seo;
+const opts = { simulate, now };
+const takenAt = await seo.takenAt().catch(() => null);
+const asOf = () => takenAt;
+
+const [targets, ai, ranks, local, audit, spend] = await Promise.all([
+  load(() => seo.targets(), opts),
+  load(() => seo.aiAnswers(), { ...opts, asOf, staleKind: 'seo' }),
+  load(() => seo.rankings(), { ...opts, asOf, staleKind: 'seo' }),
+  load(() => seo.local(), { ...opts, asOf, staleKind: 'seo' }),
+  load(() => seo.audit(), { ...opts, asOf: (a) => a?.crawledAt ?? null, staleKind: 'audit' }),
+  load(() => seo.spend(), { ...opts, asOf })
+]);
+const t = hasData(targets) ? targets.data : null;
+const aiLatest = hasData(ai) ? latest(ai.data).rows : [];
+const aiNow = aiLatest.filter((a) => a.answered);
+const aiMentioned = aiNow.filter((a) => a.mentioned).length;
+const trend = hasData(ai) && t ? mentionTrend(ai.data, t.engines) : [];
+const sov = t ? shareOfVoice(aiLatest, t.brand, t.competitors) : [];
+const rankNow = hasData(ranks) ? rankTrend(ranks.data).at(-1) : undefined;
+const moves = hasData(ranks) ? rankChanges(ranks.data).filter((r) => r.delta != null && r.delta !== 0).sort((a, b) => Math.abs(b.delta!) - Math.abs(a.delta!)).slice(0, 8) : [];
+const localNow = hasData(local) ? localSummary(local.data) : null;
+const issues = hasData(audit) && audit.data ? auditIssues(audit.data) : [];
+const serious = issues.filter((i) => i.severity !== 'low').reduce((s, i) => s + Math.max(1, i.pages), 0);
+const marketName = (id: string) => t?.markets.find((m) => m.id === id)?.city ?? id;
+const spendRows = hasData(spend) ? spend.data : [];
+const lastSpend = spendRows.length ? latest(spendRows).rows.reduce((s, x) => s + x.usd, 0) : null;
+const totalSpend = spendRows.length ? spendRows.reduce((s, x) => s + x.usd, 0) : null;
+const refreshes = new Set(spendRows.map((s) => s.date)).size;
+const money = (n: number | null) => (n == null ? '—' : n < 10 ? `$${n.toFixed(2)}` : usd(n));
+---
+<Shell title="SEO & AEO" question="Where ARR shows up when homeowners ask Google, Google Maps and AI assistants for heating and cooling help, and what to fix next." filters={{}}>
+  <SeoTabs />
+
+  <div class="grid cols-4">
+    <Kpi label="AI answers naming ARR" value={hasData(ai) ? pct(ratio(aiMentioned, aiNow.length)) : '—'} detail={hasData(ai) ? `${num(aiMentioned)} of ${num(aiNow.length)} answers, latest refresh` : undefined} href={href('/seo/ai', url)} error={errorOf(ai)} />
+    <Kpi label="Google top 3" value={rankNow ? pct(ratio(rankNow.top3, rankNow.checks)) : '—'} detail={rankNow ? `${num(rankNow.top3)} of ${num(rankNow.checks)} keyword × city searches` : undefined} href={href('/seo/rankings', url)} error={errorOf(ranks)} />
+    <Kpi label="Map pack top 3" value={localNow ? pct(ratio(localNow.top3, localNow.checks)) : '—'} detail={localNow ? `${num(localNow.top3)} of ${num(localNow.checks)} Maps searches` : undefined} href={href('/seo/local', url)} error={errorOf(local)} />
+    <Kpi label="Site issues to fix" value={hasData(audit) ? num(serious) : '—'} detail={hasData(audit) ? 'High and medium findings, counted per page' : undefined} href={href('/seo/audit', url)} error={errorOf(audit)} />
+  </div>
+
+  <div class="grid split">
+    <Panel title="AI answers naming ARR" subtitle="Share of answered prompts that name ARR, per engine and weekly refresh. Unanswered checks are left out." result={ai} source="DataForSEO AI Optimization · Google SERP" emptyText="No AI answers collected yet.">
+      {t && trend.length > 0 && (
+        <Lines title="Share of AI answers naming ARR, by engine" unit="%" height={210} labelEvery={Math.ceil(trend.length / 6)}
+          buckets={trend.map((d) => ({ label: shortDate(d.date), tip: `Week of ${shortDate(d.date)}` }))}
+          series={t.engines.map((e) => ({ name: ENGINE_SHORT[e], color: ENGINE_COLOR[e], values: trend.map((d) => pct100(d.byEngine[e]!.mentioned, d.byEngine[e]!.answered)) }))} />
+      )}
+    </Panel>
+    <Panel title="Who AI assistants name" subtitle="Answers naming each company, latest refresh, all engines." result={ai} source="DataForSEO AI Optimization" emptyText="No AI answers collected yet.">
+      {sov.length > 0 && <BarList rows={sov.map((s) => ({ label: s.own ? "ARR (us)" : s.name, value: s.answers }))} shareOf={aiNow.length || undefined} />}
+      <p class="muted small note">One answer can name several companies. Shares are of {num(aiNow.length)} answered prompts.</p>
+    </Panel>
+  </div>
+
+  <div class="grid cols-2">
+    <Panel title="Biggest ranking moves" subtitle="Google organic, since the previous refresh." result={ranks} source="DataForSEO SERP (Google organic)" flush emptyText="No rank checks yet.">
+      {moves.length > 0 ? (
+        <div class="table-wrap"><table>
+          <thead><tr><th>Keyword</th><th>City</th><th class="num">Was</th><th class="num">Now</th></tr></thead>
+          <tbody>{moves.map((m) => (
+            <tr><td>{sentence(m.keyword)}</td><td>{marketName(m.marketId)}</td><td class="num"><Pos position={m.prev} muted /></td><td class="num"><Pos position={m.position} delta={m.delta} /></td></tr>
+          ))}</tbody>
+        </table></div>
+      ) : <p class="muted pad">No positions changed between the last two refreshes.</p>}
+    </Panel>
+    <Panel title="Fix first" subtitle="Site findings, most severe first." result={audit} source="ARR site crawl" emptyText="No site crawl yet. Run the refresh with the audit step.">
+      <ul class="fixes">
+        {issues.slice(0, 6).map((i) => (
+          <li><Status value={i.severity} /> <span>{i.message}</span> <span class="muted small">{i.pages ? `${num(i.pages)} page${i.pages === 1 ? '' : 's'}` : 'site-wide'}{i.aeo ? ' · AEO' : ''}</span></li>
+        ))}
+      </ul>
+      <a class="small" href={href('/seo/audit', url)}>Full audit →</a>
+    </Panel>
+  </div>
+
+  <Panel title="What the refreshes cost" subtitle="DataForSEO charges per call. These are DataForSEO's own per-task costs, recorded at refresh time." result={spend} source="DataForSEO task cost" emptyText="No paid calls recorded yet.">
+    <p class="spend"><strong>{money(lastSpend)}</strong> <span class="muted">latest refresh</span> · <strong>{money(totalSpend)}</strong> <span class="muted">across {num(refreshes)} refresh{refreshes === 1 ? '' : 'es'}</span></p>
+    <p class="muted small">The Hub never makes a paid call while you browse. Only <span class="mono">npm run seo:refresh</span> does, and <span class="mono">--dry-run</span> shows the call count first. The site crawl is free.</p>
+  </Panel>
+</Shell>
+
+<style>
+  .note { margin-top: 10px; }
+  .pad { padding: 8px 18px; }
+  .fixes { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 8px; }
+  .fixes li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 13px; }
+  .spend { font-size: 15px; margin-bottom: 4px; }
+  .spend strong { font: 800 22px var(--font-display); font-stretch: expanded; color: var(--accent); }
+  table td:first-child, table th:first-child { padding-left: 18px; }
+</style>

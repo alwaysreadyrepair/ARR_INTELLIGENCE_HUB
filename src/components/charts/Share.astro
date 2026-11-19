@@ -1,0 +1,33 @@
+---
+/* A single 100% bar split into parts (e.g. heating types, central-air yes/no/unknown). Colours come in the fixed
+ * categorical order, 2px surface gaps sit between segments, and every part carries a legend entry with its share. */
+import { num, pct } from '../../lib/format.ts';
+
+interface Props {
+  parts: { label: string; value: number; color: string }[];
+  compact?: boolean;
+}
+const { parts, compact } = Astro.props;
+const total = parts.reduce((s, p) => s + p.value, 0);
+const shown = parts.filter((p) => p.value > 0);
+---
+<div class:list={['share', { compact }]}>
+  <div class="bar" role="img" aria-label={shown.map((p) => `${p.label} ${pct(p.value / total)}`).join(', ')}>
+    {shown.map((p) => <span data-tip={`${p.label}: ${num(p.value)} (${pct(p.value / total)})`} style={`flex:${p.value};background:${p.color}`}></span>)}
+  </div>
+  {!compact && (
+    <ul class="legend">
+      {shown.map((p) => <li><i style={`background:${p.color}`}></i>{p.label} <strong>{pct(p.value / total)}</strong> <span class="muted">({num(p.value)})</span></li>)}
+    </ul>
+  )}
+</div>
+
+<style>
+  .bar { display: flex; gap: 2px; height: 14px; border-radius: 4px; overflow: hidden; }
+  .compact .bar { height: 10px; }
+  .bar span { min-width: 3px; }
+  .legend { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--text-2); }
+  .legend li { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  strong { color: var(--text-1); font-weight: 600; }
+</style>

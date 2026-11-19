@@ -1,0 +1,20 @@
+---
+/* Loading state. Used as the `fallback` of deferred server islands (`server:defer`): the page ships at once and
+ * the panel streams in when its data is ready. */
+interface Props { title: string; height?: number }
+const { title, height = 220 } = Astro.props;
+---
+<section class="panel sk" aria-busy="true" aria-label={`${title}, loading`}>
+  <h2>{title}</h2>
+  <div class="bars" style={`height:${height}px`}>
+    {Array.from({ length: 12 }, (_, i) => <span style={`height:${30 + ((i * 37) % 60)}%`}></span>)}
+  </div>
+  <p class="muted small">Loading…</p>
+</section>
+
+<style>
+  .sk { background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; display: grid; gap: 12px; }
+  .bars { display: flex; align-items: flex-end; gap: 6px; }
+  .bars span { flex: 1; border-radius: 4px 4px 0 0; background: linear-gradient(90deg, var(--surface-2), var(--surface-3), var(--surface-2)); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+</style>

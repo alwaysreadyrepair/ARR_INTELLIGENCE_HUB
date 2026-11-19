@@ -1,0 +1,160 @@
+---
+import Shell from '../components/layout/Shell.astro';
+import Panel from '../components/ui/Panel.astro';
+import Kpi from '../components/ui/Kpi.astro';
+import Status from '../components/ui/Status.astro';
+import Skeleton from '../components/ui/Skeleton.astro';
+import Columns from '../components/charts/Columns.astro';
+import BarList from '../components/charts/BarList.astro';
+import Share from '../components/charts/Share.astro';
+import TerritoryMap from '../components/map/TerritoryMap.astro';
+import WeatherDemand from '../components/panels/WeatherDemand.astro';
+import { load, hasData } from '../lib/load.ts';
+import { freshness, newest } from '../lib/freshness.ts';
+import { href, rangeDates, readGlobalFilters } from '../lib/filters.ts';
+import { COUNTY_LABEL, HEATING_LABEL, num, pct, relative, SOURCE_LABEL } from '../lib/format.ts';
+import { ratio } from '../lib/stats.ts';
+import { weatherAreaFor, weatherStress } from '../lib/weather.ts';
+
+const { repos, now, simulate } = Astro.locals;
+const url = Astro.url;
+const g = readGlobalFilters(url);
+const opts = { simulate, now };
+
+const [coverage, profile, stress, jobs, issues, activity] = await Promise.all([
+  load(() => repos.coverage.list(), { ...opts, asOf: (a) => newest(a.map((x) => x.lastRefreshedAt)) }),
+  load(() => repos.markets.profile({ territory: g.territory, source: g.source }), { ...opts, isEmpty: (p) => p.homes === 0, asOf: (p) => p.asOf, staleKind: 'property' }),
+  load(async () => {
+    const [areas, zips] = await Promise.all([repos.weather.areas(), repos.coverage.list({ kind: 'zip' })]);
+    const area = weatherAreaFor(g.territory, zips, areas);
+    if (!area) return null;
+    const { from, to } = rangeDates('30d', now);
+    const obs = (await repos.weather.observations(area.id, from, to)).slice(-7);
+    const s = weatherStress(obs, await repos.weather.normals(area.id));
+    return s && { ...s, area, retrievedAt: obs.at(-1)?.source.retrievedAt ?? null };
+  }, { ...opts, isEmpty: (s) => s == null, asOf: (s) => s?.retrievedAt ?? null, staleKind: 'weatherObs' }),
+  load(() => repos.ingestion.list(), { ...opts, asOf: (j) => newest(j.map((x) => x.finishedAt ?? x.startedAt ?? x.createdAt)) }),
+  load(() => repos.quality.list({ status: 'open' }), { ...opts, asOf: (i) => newest(i.map((x) => x.detectedAt)) }),
+  load(() => repos.audit.recent(6), { ...opts, asOf: (a) => a[0]?.at ?? null })
+]);
+
+// Coverage KPIs, scoped to the territory filter.
+const zips = hasData(coverage) ? coverage.data.filter((a) => a.kind === 'zip' && (!g.territory || a.townshipId === g.territory)) : [];
+const townships = hasData(coverage) ? coverage.data.filter((a) => a.kind === 'township' && (!g.territory || a.id === g.territory)) : [];
+const indexed = zips.reduce((s, a) => s + a.homesIndexed, 0);
+const expected = zips.reduce((s, a) => s + (a.parcelsExpected ?? 0), 0);
+const refreshed30 = zips.filter((a) => a.lastRefreshedAt && now.getTime() - Date.parse(a.lastRefreshedAt) <= 30 * 86_400_000).reduce((s, a) => s + a.homesIndexed, 0);
+const covErr = coverage.status === 'error' ? coverage.message : undefined;
+
+const p = hasData(profile) ? profile.data : null;
+const jobList = hasData(jobs) ? jobs.data : [];
+const activeJobs = jobList.filter((j) => j.status === 'running' || j.status === 'queued');
+const failedJobs = jobList.filter((j) => j.status === 'failed' || j.status === 'partial');
+const s = hasData(stress) ? stress.data : null;
+const heatColors = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)', 'var(--series-5)', '#5d6b82'];
+---
+<Shell title="Overview" question="What we know about the homes in ARR's territory, how complete and current it is, and what the weather is doing to demand.">
+  <div class="grid cols-4">
+    <Kpi label="Homes indexed" value={num(indexed)} detail={`${num(zips.filter((a) => a.homesIndexed > 0).length)} of ${zips.length} ZIPs · ${townships.filter((t) => t.homesIndexed > 0).length} of ${townships.length} townships`} href={href('/properties', url)} error={covErr} />
+    <Kpi label="Coverage completeness" value={pct(ratio(indexed, expected))} detail={`${num(indexed)} of ~${num(expected)} residential parcels`} href={href('/coverage', url)} error={covErr} />
+    <Kpi label="Refreshed in 30 days" value={num(refreshed30)} detail={`${pct(ratio(refreshed30, indexed))} of indexed homes`} href={href('/coverage', url)} error={covErr} />
+    <Kpi label="Weather stress (7 days)" value={s ? s.label : '—'} detail={s ? `${s.hdd} HDD / ${s.cdd} CDD vs normal ${s.hddNormal} / ${s.cddNormal} · ${s.area.name}` : undefined} href={href('/weather', url)} error={stress.status === 'error' ? stress.message : undefined} status={s ? (s.level === 'high' ? 'moderate' : undefined) : undefined} statusLabel="Above normal" />
+    <Kpi label="Median home age" value={p?.medianYearBuilt ? `${now.getFullYear() - p.medianYearBuilt} yrs` : '—'} detail={p?.medianYearBuilt ? `Median year built ${p.medianYearBuilt} · ${num(p.yearBuiltUnknown)} unknown` : undefined} href={href('/markets', url)} error={profile.status === 'error' ? profile.message : undefined} />
+    <Kpi label="Median square footage" value={p?.medianSqft ? num(p.medianSqft) : '—'} detail="Above-grade living area, assessor record" href={href('/markets', url)} error={profile.status === 'error' ? profile.message : undefined} />
+    <Kpi label="HVAC permit on record" value={p ? pct(ratio(p.withHvacPermit, p.homes)) : '—'} detail={p ? `${num(p.withHvacPermit)} homes. Cook permits only.` : undefined} href={href('/properties', url)} error={profile.status === 'error' ? profile.message : undefined} />
+    <Kpi label="Ingestion jobs" value={`${activeJobs.length} active`} detail={`${failedJobs.length} failed or partial · ${jobList.length} total`} href={href('/imports', url)} error={jobs.status === 'error' ? jobs.message : undefined} status={failedJobs.length ? 'failed' : undefined} statusLabel={`${failedJobs.length} need attention`} />
+  </div>
+
+  <div class="grid split">
+    <Panel title="Territory map" subtitle="Coverage completeness by ZIP. Click a tile for detail." result={coverage} source="Coverage index (assessor extracts)">
+      {hasData(coverage) && <TerritoryMap areas={coverage.data} />}
+    </Panel>
+    <Panel title="Housing profile" subtitle={p ? `${p.label} · ${num(p.homes)} homes` : undefined} result={profile} source={g.source ? SOURCE_LABEL[g.source] : 'County assessor records'} emptyText="No homes match these filters.">
+      {p && (
+        <div class="profile">
+          <div>
+            <h3 class="h">Year built</h3>
+            <Columns title="Homes by decade built" height={150} unit=" homes" labelEvery={2}
+              buckets={p.byDecade.map((d) => ({ label: `'${String(d.decade).slice(2)}`, tip: `${d.decade}s` }))}
+              series={[{ name: 'Homes', color: 'var(--series-1)', values: p.byDecade.map((d) => d.homes) }]} />
+          </div>
+          <div>
+            <h3 class="h">Square footage</h3>
+            <BarList rows={p.bySqftBand.map((b) => ({ label: b.band, value: b.homes }))} shareOf={p.homes} />
+          </div>
+          <div>
+            <h3 class="h">Heating type</h3>
+            <Share parts={p.byHeatingType.map((h, i) => ({ label: HEATING_LABEL[h.type] ?? h.type, value: h.homes, color: heatColors[i] ?? '#5d6b82' }))} />
+          </div>
+        </div>
+      )}
+    </Panel>
+  </div>
+
+  <div class="grid split">
+    <WeatherDemand server:defer territory={g.territory} range={g.range} simulate={simulate} compact>
+      <Skeleton slot="fallback" title="Weather vs. demand" height={300} />
+    </WeatherDemand>
+    <Panel title="Coverage freshness" subtitle="By township. The oldest ZIP in a township sets its date." result={coverage} source="Coverage index">
+      {hasData(coverage) && (
+        <div class="table-wrap"><table>
+          <thead><tr><th>Township</th><th>Status</th><th class="num">Complete</th><th class="num">Refreshed</th></tr></thead>
+          <tbody>
+            {townships.map((t) => {
+              const f = t.homesIndexed === 0 ? 'missing' : freshness(t.lastRefreshedAt, 'coverage', now);
+              return (
+                <tr>
+                  <td><a href={href('/coverage', url, { area: t.id })}>{t.name.replace(' Township', '')}</a> <span class="muted small">{COUNTY_LABEL[t.county]}</span></td>
+                  <td><Status value={f} /></td>
+                  <td class="num">{f !== 'missing' && t.parcelsExpected ? pct(ratio(t.homesIndexed, t.parcelsExpected)) : '—'}</td>
+                  <td class="num muted">{relative(t.lastRefreshedAt, now)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table></div>
+      )}
+    </Panel>
+  </div>
+
+  <div class="grid cols-3">
+    <Panel title="Import jobs" result={jobs} source="Ingestion log" emptyText="No import jobs yet.">
+      <div slot="actions"><a class="small" href={href('/imports', url)}>All jobs →</a></div>
+      <ul class="list">
+        {jobList.slice(0, 5).map((j) => (
+          <li>
+            <Status value={j.status} />
+            <span class="grow"><span class="mono">{j.id}</span> {SOURCE_LABEL[j.source]}{j.dryRun ? ' (dry run)' : ''}<br />
+              <span class="muted small">{j.status === 'running' && j.recordsExpected ? `${pct(ratio(j.recordsProcessed, j.recordsExpected))} · ${num(j.recordsProcessed)} of ${num(j.recordsExpected)}` : `${num(j.recordsAccepted)} accepted · ${num(j.recordsRejected)} rejected`}</span></span>
+            <span class="muted small">{relative(j.finishedAt ?? j.startedAt ?? j.createdAt, now)}</span>
+          </li>
+        ))}
+      </ul>
+    </Panel>
+    <Panel title="Data-quality alerts" subtitle={hasData(issues) ? `${issues.data.length} open` : undefined} result={issues} source="Quality rules" emptyText="No open data-quality issues.">
+      <div slot="actions"><a class="small" href={href('/quality', url)}>Review queue →</a></div>
+      <ul class="list">
+        {hasData(issues) && [...issues.data].sort((a, b) => ['high', 'medium', 'low'].indexOf(a.severity) - ['high', 'medium', 'low'].indexOf(b.severity)).slice(0, 5).map((i) => (
+          <li><Status value={i.severity} /><span class="grow">{i.summary}</span></li>
+        ))}
+      </ul>
+    </Panel>
+    <Panel title="Recent activity" result={activity} source="Audit log" emptyText="No activity yet.">
+      <ul class="list">
+        {hasData(activity) && activity.data.map((a) => (
+          <li><span class="grow"><span class="mono small">{a.action}</span><br />{a.detail}</span><span class="muted small">{relative(a.at, now)}</span></li>
+        ))}
+      </ul>
+    </Panel>
+  </div>
+</Shell>
+
+<style>
+  .profile { display: grid; gap: 18px; }
+  .profile > * { min-width: 0; }
+  .h { font-size: 12px; color: var(--text-2); font-weight: 600; margin-bottom: 8px; }
+  .list { list-style: none; margin: 0; padding: 0; display: grid; }
+  .list li { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .list li:last-child { border-bottom: 0; }
+  .grow { flex: 1; min-width: 0; }
+</style>

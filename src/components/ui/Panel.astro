@@ -1,0 +1,97 @@
+---
+/* A dashboard panel that owns the data states. Pass the `Loaded` result:
+ *   ok     → the default slot renders
+ *   stale  → the slot renders under a warning naming how old the data is
+ *   empty  → `emptyText` (plus an optional `empty` slot for a next step)
+ *   error  → the error message and a retry link
+ * The source attribution and freshness stamp sit in the footer of every panel that shows data. */
+import type { Loaded } from '../../lib/load.ts';
+import { dateTime, relative } from '../../lib/format.ts';
+import Icon from './Icon.astro';
+
+interface Props {
+  title: string;
+  subtitle?: string;
+  result?: Loaded<unknown>;
+  /** Attribution, e.g. "Cook County Assessor (2025 release)". */
+  source?: string;
+  emptyText?: string;
+  class?: string;
+  flush?: boolean;
+}
+const { title, subtitle, result, source, emptyText = 'Nothing to show for these filters.', class: cls, flush } = Astro.props;
+const now = Astro.locals.now;
+const status = result?.status ?? 'ok';
+const asOf = result && 'asOf' in result ? result.asOf : null;
+const retry = new URL(Astro.url);
+retry.searchParams.delete('simulate');
+---
+<section class:list={['panel', cls, { flush }]} aria-busy="false">
+  <header class="ph">
+    <div>
+      <h2>{title}</h2>
+      {subtitle && <p class="sub">{subtitle}</p>}
+    </div>
+    <div class="ph-actions"><slot name="actions" /></div>
+  </header>
+
+  {status === 'error' && result?.status === 'error' && (
+    <div class="state error" role="alert">
+      <Icon name="alert" size={20} />
+      <div>
+        <strong>Couldn't load this panel.</strong>
+        <p>{result.message}</p>
+        <a href={retry.pathname + retry.search}>Retry</a>
+      </div>
+    </div>
+  )}
+
+  {status === 'empty' && (
+    <div class="state empty">
+      <Icon name="layers" size={20} />
+      <div>
+        <p>{emptyText}</p>
+        <slot name="empty" />
+      </div>
+    </div>
+  )}
+
+  {(status === 'ok' || status === 'stale') && (
+    <>
+      {status === 'stale' && (
+        <div class="stale" role="status"><Icon name="clock" size={14} /> Stale: last refreshed {relative(asOf, now)} ({dateTime(asOf)}). Treat these figures as out of date.</div>
+      )}
+      <div class="body"><slot /></div>
+    </>
+  )}
+
+  {(source || asOf) && status !== 'error' && (
+    <footer class="pf">
+      {source && <span>Source: {source}</span>}
+      {asOf && <span title={dateTime(asOf)}>As of {relative(asOf, now)}</span>}
+    </footer>
+  )}
+</section>
+
+<style>
+  .panel {
+    background: linear-gradient(180deg, rgba(27, 44, 72, 0.55), rgba(16, 27, 46, 0.92)), var(--surface-1);
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px 12px; min-width: 0;
+    display: flex; flex-direction: column; gap: 12px; box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 10px 30px rgba(0, 0, 0, 0.25);
+  }
+  .ph { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .sub { color: var(--text-3); font-size: 12.5px; margin-top: 4px; }
+  .ph-actions { display: flex; gap: 8px; align-items: center; }
+  .body { min-width: 0; flex: 1; }
+  .flush .body { margin: 0 -18px; }
+  .state { display: flex; gap: 12px; align-items: flex-start; padding: 18px 4px; color: var(--text-2); flex: 1; }
+  .state :global(svg) { margin-top: 1px; }
+  .state p { margin-top: 2px; }
+  .error { color: var(--critical); }
+  .error div { color: var(--text-2); }
+  .error strong { color: var(--text-1); }
+  .error a { display: inline-block; margin-top: 6px; }
+  .empty :global(svg) { color: var(--text-3); }
+  .stale { display: flex; gap: 6px; align-items: center; font-size: 12.5px; padding: 6px 10px; border-radius: 6px; color: var(--warn); background: rgba(255, 204, 4, 0.08); border: 1px solid rgba(255, 204, 4, 0.35); }
+  .pf { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 11.5px; color: var(--text-3); border-top: 1px solid var(--border); padding-top: 8px; margin-top: auto; }
+</style>

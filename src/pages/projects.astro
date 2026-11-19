@@ -1,0 +1,78 @@
+---
+import Shell from '../components/layout/Shell.astro';
+import Panel from '../components/ui/Panel.astro';
+import Status from '../components/ui/Status.astro';
+import Columns from '../components/charts/Columns.astro';
+import { load, hasData } from '../lib/load.ts';
+import { dateTime, num, relative } from '../lib/format.ts';
+
+const { repos, now, simulate } = Astro.locals;
+const [projects, audit] = await Promise.all([
+  load(() => repos.projects.list(), { simulate, now }),
+  load(() => repos.audit.recent(25), { simulate, now, asOf: (a) => a[0]?.at ?? null })
+]);
+---
+<Shell title="Projects & API" question="Which apps read from the Hub, what each one may see, and how much they use it." filters={{}}>
+  <Panel title="Registered projects" subtitle="Each project gets its own key, datasets and territories." result={projects} source="Project registry" emptyText="No projects registered.">
+    <div class="projects">
+      {hasData(projects) && projects.data.map((p) => {
+        const total = p.usage.reduce((s, u) => s + u.requests, 0);
+        return (
+          <article class="proj">
+            <header>
+              <h3>{p.name}</h3>
+              <Status value={p.status} />
+            </header>
+            <p class="muted small">{p.description}</p>
+            <dl>
+              <dt>Owner</dt><dd>{p.owner}</dd>
+              <dt>Datasets</dt><dd class="tags">{p.datasets.map((d) => <span>{d}</span>)}</dd>
+              <dt>Territories</dt><dd class="tags">{p.territories.map((t) => <span>{t}</span>)}</dd>
+              <dt>API key</dt><dd><span class="mono">{p.keyPrefix}••••••••</span> <span class="muted small">issued {relative(p.keyCreatedAt, now)}</span></dd>
+              <dt>Last used</dt><dd>{p.keyLastUsedAt ? relative(p.keyLastUsedAt, now) : <span class="muted">Never</span>}</dd>
+              <dt>Rate limit</dt><dd>{num(p.rateLimitPerMin)} req/min</dd>
+            </dl>
+            <div>
+              <p class="small"><strong>{num(total)}</strong> <span class="muted">requests, last 14 days</span></p>
+              {total > 0 && <Columns title={`${p.name} daily requests`} height={90} labelEvery={7} unit=" req"
+                buckets={p.usage.map((u) => ({ label: new Date(`${u.date}T12:00:00Z`).toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) }))}
+                series={[{ name: 'Requests', color: 'var(--series-1)', values: p.usage.map((u) => u.requests) }]} />}
+            </div>
+            <footer>
+              <button class="btn" disabled title="Needs real authentication">Rotate key</button>
+              <button class="btn" disabled title="Needs real authentication">Edit access</button>
+            </footer>
+          </article>
+        );
+      })}
+    </div>
+    <p class="muted small note">Only a key's prefix is ever stored for display. The full secret is shown once, when it's issued. Key management turns on with Supabase Auth.</p>
+  </Panel>
+
+  <Panel title="Audit history" result={audit} source="Audit log" flush emptyText="No audit events yet.">
+    <div class="table-wrap"><table>
+      <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead>
+      <tbody>
+        {hasData(audit) && audit.data.map((a) => (
+          <tr><td class="small" title={dateTime(a.at)}>{relative(a.at, now)}</td><td class="small">{a.actor}</td><td class="mono">{a.action}</td><td class="mono">{a.target}</td><td>{a.detail}</td></tr>
+        ))}
+      </tbody>
+    </table></div>
+  </Panel>
+</Shell>
+
+<style>
+  .projects { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 14px; }
+  .proj { min-width: 0; display: grid; gap: 10px; align-content: start; padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+  .proj header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 5px 12px; margin: 0; font-size: 13px; }
+  dt { color: var(--text-3); }
+  dd { margin: 0; }
+  /* Usage bars are a glance, not a read: let them shrink with the card. */
+  .proj :global(.chart svg) { min-width: 0; }
+  .tags { display: flex; flex-wrap: wrap; gap: 4px; }
+  .tags span { font-size: 11.5px; padding: 1px 7px; border-radius: 4px; background: var(--surface-3); color: var(--text-2); }
+  .proj footer { display: flex; gap: 8px; }
+  .note { margin-top: 12px; }
+  table td:first-child, table th:first-child { padding-left: 18px; }
+</style>

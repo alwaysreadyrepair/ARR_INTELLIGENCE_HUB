@@ -1,0 +1,49 @@
+---
+/* Sub-navigation for the SEO & AEO section, plus where the numbers come from. Every SEO page renders it first. */
+import { href } from '../../lib/filters.ts';
+import { dateTime, relative } from '../../lib/format.ts';
+import Icon from '../ui/Icon.astro';
+
+const { url, locals } = Astro;
+const { repos, now } = locals;
+let takenAt: string | null = null;
+try {
+  takenAt = await repos.seo.takenAt();
+} catch {
+  // The panels report the failure themselves; the tab bar shouldn't.
+}
+const TABS = [
+  { path: '/seo', label: 'Overview' },
+  { path: '/seo/ai', label: 'AI answers' },
+  { path: '/seo/rankings', label: 'Rankings' },
+  { path: '/seo/local', label: 'Map pack' },
+  { path: '/seo/keywords', label: 'Keywords' },
+  { path: '/seo/competitors', label: 'Competitors' },
+  { path: '/seo/audit', label: 'Site audit' }
+];
+---
+<div class="seo-head">
+  <nav class="tabs" aria-label="SEO & AEO sections">
+    {TABS.map((t) => (
+      <a href={href(t.path, url)} class:list={['tab', { on: url.pathname === t.path }]} aria-current={url.pathname === t.path ? 'page' : undefined}>{t.label}</a>
+    ))}
+  </nav>
+  <p class="src muted small">
+    <Icon name={repos.seo.kind === 'mock' ? 'flask' : 'refresh'} size={13} />
+    {repos.seo.kind === 'mock'
+      ? <>Synthetic data. Run <span class="mono">npm run seo:refresh</span> and set <span class="mono">SEO_DATA_SOURCE=snapshot</span> for ARR's own.</>
+      : <>Last refresh <span title={dateTime(takenAt)}>{relative(takenAt, now)}</span> · <span class="mono">npm run seo:refresh</span></>}
+  </p>
+</div>
+
+<style>
+  .seo-head { display: flex; justify-content: space-between; align-items: center; gap: 10px 16px; flex-wrap: wrap; }
+  .tabs { display: flex; gap: 2px; flex-wrap: wrap; background: var(--surface-1); border: 1px solid var(--border); border-radius: 9px; padding: 3px; }
+  .tab { padding: 6px 12px; border-radius: 7px; color: var(--text-2); font-weight: 500; font-size: 13px; }
+  .tab:hover { color: var(--text-1); background: rgba(255, 255, 255, 0.04); text-decoration: none; }
+  .tab.on { background: var(--accent-dim); color: var(--text-1); box-shadow: inset 0 -2px 0 var(--accent); }
+  .src { display: block; line-height: 1.6; }
+  .src :global(svg) { vertical-align: -2px; margin-right: 4px; }
+  .src .mono { overflow-wrap: anywhere; }
+  .src .mono { font-size: 11.5px; }
+</style>

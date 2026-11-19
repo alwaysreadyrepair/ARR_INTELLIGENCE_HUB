@@ -1,0 +1,65 @@
+---
+/* Line chart: one or more series in the same unit on one y-axis, 2px lines, direct end labels for ≤ 4 series,
+ * plus a per-bucket hover band that reports every series at that x (crosshair behaviour).
+ * The x geometry matches Columns.astro. */
+import { axisLabel, FRAME, niceMax, scale, ticks } from '../../lib/charts.ts';
+import { num } from '../../lib/format.ts';
+import type { Series } from './Columns.astro';
+
+interface Props {
+  buckets: { label: string; tip?: string }[];
+  series: Series[];
+  unit?: string;
+  height?: number;
+  labelEvery?: number;
+  title: string;
+}
+const { buckets, series, unit = '', height = 170, labelEvery = 1, title } = Astro.props;
+
+const { W, PL, PR } = FRAME;
+const PT = 12, PB = 24;
+const plotW = W - PL - PR, plotH = height - PT - PB;
+const max = niceMax(Math.max(0, ...series.flatMap((s) => s.values)));
+const y = scale(max, plotH);
+const step = plotW / Math.max(1, buckets.length);
+const cx = (i: number) => PL + step * i + step / 2;
+const py = (v: number) => PT + plotH - y(v);
+const paths = series.map((s) => ({ ...s, d: s.values.map((v, i) => `${i ? 'L' : 'M'}${cx(i).toFixed(1)},${py(v).toFixed(1)}`).join('') }));
+const last = buckets.length - 1;
+// Direct end labels, nudged apart if two series finish close together.
+const ends = paths.map((p) => ({ name: p.name, y: py(p.values[last] ?? 0) })).sort((a, b) => a.y - b.y);
+for (let i = 1; i < ends.length; i++) if (ends[i]!.y - ends[i - 1]!.y < 14) ends[i]!.y = ends[i - 1]!.y + 14;
+---
+<figure class="chart">
+  {series.length > 1 && (
+    <figcaption class="legend">
+      {series.map((s) => <span><i class="line" style={`background:${s.color}`}></i>{s.name}</span>)}
+    </figcaption>
+  )}
+  <svg viewBox={`0 0 ${W} ${height}`} role="img" aria-label={title}>
+    {ticks(max).map((t) => (
+      <g>
+        <line x1={PL} x2={W - PR} y1={py(t)} y2={py(t)} class="grid" />
+        <text x={PL - 6} y={py(t) + 3.5} class="axis" text-anchor="end">{axisLabel(t)}</text>
+      </g>
+    ))}
+    <line x1={PL} x2={W - PR} y1={PT + plotH} y2={PT + plotH} class="baseline" />
+    {paths.map((p) => <path d={p.d} fill="none" stroke={p.color} stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />)}
+    {buckets.map((b, i) => (
+      <g class="hover" data-tip={[b.tip ?? b.label, ...series.map((s) => `${s.name}: ${num(s.values[i] ?? 0)}${unit}`)].join('\n')}>
+        <rect x={cx(i) - step / 2} y={PT} width={step} height={plotH} fill="transparent" />
+        <line x1={cx(i)} x2={cx(i)} y1={PT} y2={PT + plotH} class="xhair" />
+        {series.map((s) => <circle cx={cx(i)} cy={py(s.values[i] ?? 0)} r="4" fill={s.color} class="dot" />)}
+      </g>
+    ))}
+    {series.length <= 4 && series.length > 1 && last >= 0 && ends.map((e) => <text x={cx(last) + 8} y={e.y + 3.5} class="axis end">{e.name}</text>)}
+    {buckets.map((b, i) => (i % labelEvery === 0 ? <text x={cx(i)} y={height - 6} class="axis" text-anchor="middle">{b.label}</text> : null))}
+  </svg>
+  <details class="tv">
+    <summary>View as table</summary>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Period</th>{series.map((s) => <th class="num">{s.name}</th>)}</tr></thead>
+      <tbody>{buckets.map((b, i) => <tr><td>{b.tip ?? b.label}</td>{series.map((s) => <td class="num">{num(s.values[i] ?? 0)}</td>)}</tr>)}</tbody>
+    </table></div>
+  </details>
+</figure>

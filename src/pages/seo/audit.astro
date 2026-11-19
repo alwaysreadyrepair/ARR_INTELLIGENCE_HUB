@@ -1,0 +1,87 @@
+---
+import Shell from '../../components/layout/Shell.astro';
+import SeoTabs from '../../components/seo/SeoTabs.astro';
+import Panel from '../../components/ui/Panel.astro';
+import Kpi from '../../components/ui/Kpi.astro';
+import Status from '../../components/ui/Status.astro';
+import Icon from '../../components/ui/Icon.astro';
+import { load, hasData, errorOf } from '../../lib/load.ts';
+import { href } from '../../lib/filters.ts';
+import { num } from '../../lib/format.ts';
+import { auditIssues } from '../../lib/seo/stats.ts';
+
+const { repos, now, simulate } = Astro.locals;
+const url = Astro.url;
+const seo = repos.seo;
+const audit = await load(() => seo.audit(), { simulate, now, asOf: (a) => a?.crawledAt ?? null, staleKind: 'audit' });
+const a = hasData(audit) ? audit.data : null;
+const issues = a ? auditIssues(a) : [];
+const code = issues.some((i) => i.code === url.searchParams.get('issue')) ? url.searchParams.get('issue')! : undefined;
+const pages = (a?.pages ?? []).filter((p) => !code || p.issues.some((i) => i.code === code)).sort((x, y) => y.issues.length - x.issues.length);
+const withSchema = (a?.pages ?? []).filter((p) => p.schemaTypes.some((t) => t !== 'WebPage')).length;
+const path = (u: string) => u.replace(/^https?:\/\/[^/]+/, '') || '/';
+const CHECKS = a ? [
+  { ok: a.robots.present, label: 'robots.txt present' },
+  { ok: a.robots.blockedAiBots.length === 0, label: a.robots.blockedAiBots.length ? `robots.txt blocks ${a.robots.blockedAiBots.join(', ')}` : 'AI crawlers allowed (GPTBot, PerplexityBot, ClaudeBot, Google-Extended)' },
+  { ok: a.robots.sitemapListed, label: 'Sitemap listed in robots.txt' },
+  { ok: a.pagesInSitemap != null, label: a.pagesInSitemap != null ? `Sitemap found (${num(a.pagesInSitemap)} URLs)` : 'No sitemap found' },
+  { ok: a.llmsTxt, label: a.llmsTxt ? '/llms.txt present' : 'No /llms.txt (optional)' }
+] : [];
+---
+<Shell title="Site audit" question="What on alwaysreadyrepair.com keeps Google and AI engines from understanding, trusting or quoting it, most important first." filters={{}}>
+  <SeoTabs />
+
+  <div class="grid cols-4">
+    <Kpi label="Pages crawled" value={a ? num(a.pagesCrawled) : '—'} detail={a?.pagesInSitemap != null ? `of ${num(a.pagesInSitemap)} in the sitemap` : undefined} error={errorOf(audit)} />
+    <Kpi label="High-severity findings" value={a ? num(issues.filter((i) => i.severity === 'high').reduce((s, i) => s + Math.max(1, i.pages), 0)) : '—'} detail="Counted per page" error={errorOf(audit)} />
+    <Kpi label="AEO findings" value={a ? num(issues.filter((i) => i.aeo).reduce((s, i) => s + Math.max(1, i.pages), 0)) : '—'} detail="Structured data, crawler access, answerable content" error={errorOf(audit)} />
+    <Kpi label="Pages with structured data" value={a ? `${num(withSchema)} / ${num(a.pages.length)}` : '—'} detail="JSON-LD beyond a plain WebPage (business, FAQ, service, article…)" error={errorOf(audit)} />
+  </div>
+
+  <div class="grid split">
+    <Panel title="Findings" subtitle="Grouped by issue, most severe first. Pick one to filter the page list." result={audit} source="ARR site crawl (Hub refresh script)" flush emptyText="No crawl yet. Run `npm run seo:refresh -- --only=audit` (free: it only fetches our own pages).">
+      <div class="table-wrap"><table>
+        <thead><tr><th>Severity</th><th>Finding</th><th class="num">Pages</th></tr></thead>
+        <tbody>{issues.map((i) => (
+          <tr class:list={{ cur: i.code === code }}>
+            <td><Status value={i.severity} /></td>
+            <td>{i.pages ? <a href={href('/seo/audit', url, { issue: i.code === code ? undefined : i.code })}>{i.message}</a> : i.message}{i.aeo && <span class="tag">AEO</span>}</td>
+            <td class="num">{i.pages ? num(i.pages) : 'Site'}</td>
+          </tr>
+        ))}</tbody>
+      </table></div>
+    </Panel>
+    <Panel title="Crawler access" subtitle="What search and AI crawlers are allowed to read." result={audit} source="robots.txt · sitemap · llms.txt">
+      <ul class="checks">{CHECKS.map((c) => <li class:list={[c.ok ? 'ok' : 'no']}><Icon name={c.ok ? 'check' : 'x'} size={14} />{c.label}</li>)}</ul>
+    </Panel>
+  </div>
+
+  <Panel title={code ? 'Pages with this finding' : 'Pages'} subtitle={code ? undefined : 'Most findings first.'} result={audit} source="ARR site crawl" flush emptyText="No pages crawled.">
+    {code && <a slot="actions" class="small" href={href('/seo/audit', url, { issue: undefined })}>All pages</a>}
+    <div class="table-wrap"><table class="wide">
+      <thead><tr><th>Page</th><th class="num">Status</th><th>Title</th><th class="num">Words</th><th class="num">H1</th><th>Structured data</th><th class="num">Findings</th></tr></thead>
+      <tbody>{pages.map((p) => (
+        <tr>
+          <td class="mono small"><a href={p.url} rel="noopener" target="_blank">{path(p.url)}</a>{p.noindex && <span class="tag warn">noindex</span>}</td>
+          <td class="num">{p.status}</td>
+          <td class="small">{p.title ?? <span class="muted">none</span>}</td>
+          <td class="num">{num(p.wordCount)}</td>
+          <td class="num">{p.h1Count}</td>
+          <td class="small">{p.schemaTypes.join(', ') || <span class="muted">none</span>}</td>
+          <td class="num">{p.issues.length ? <span data-tip={p.issues.map((i) => i.message).join('\n')}>{p.issues.length}</span> : <span class="muted">0</span>}</td>
+        </tr>
+      ))}</tbody>
+    </table></div>
+  </Panel>
+</Shell>
+
+<style>
+  table td:first-child, table th:first-child { padding-left: 18px; }
+  tr.cur { background: var(--accent-dim); }
+  .tag { display: inline-block; margin-left: 8px; padding: 0 6px; border-radius: 4px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; color: var(--accent); border: 1px solid currentColor; vertical-align: 1px; }
+  .tag.warn { color: var(--warn); }
+  .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; font-size: 13px; }
+  .checks li { display: flex; gap: 8px; align-items: center; }
+  .checks .ok :global(svg) { color: var(--good); }
+  .checks .no :global(svg) { color: var(--serious); }
+</style>

@@ -1,0 +1,169 @@
+/* ARR Intelligence Hub. A dark command-center theme built on the ARR palette (arr-brand):
+ * navy #14284e and near-black #221f20 for surfaces, light blue #03bce6 for data and UI accents, red #ee292f held
+ * back for alerts and primary actions, yellow #ffcc04 only as a dark-surface warning accent.
+ * Dark by design, so there is no light variant. Chart series colours were run through the dataviz validator
+ * against --surface-1 (adjacent CVD ΔE ≥ 13, normal-vision ΔE ≥ 19, all ≥ 3:1 contrast). */
+
+:root {
+  color-scheme: dark;
+
+  --bg: #0a1220;
+  --surface-1: #101b2e;
+  --surface-2: #15233a;
+  --surface-3: #1b2c48;
+  --border: #22334f;
+  --border-strong: #2f4568;
+
+  --text-1: #eef2f7;
+  --text-2: #b3c0d2;
+  --text-3: #8595ac;
+
+  --accent: #03bce6;        /* ARR light blue: links, focus, active nav */
+  --accent-dim: rgba(3, 188, 230, 0.12);
+  --action: #ee292f;        /* ARR red: primary actions and critical states only */
+  --arr-blue: #084e91;
+  --arr-navy: #14284e;
+
+  /* Categorical series, in fixed order. HDD → series-2 (warm), CDD → series-1 (cool). */
+  --series-1: #0b9fc4;
+  --series-2: #d95926;
+  --series-3: #9085e9;
+  --series-4: #c98500;
+  --series-5: #d55181;
+
+  /* Sequential (coverage completeness): one hue, dark → bright. */
+  --seq-1: #123149;
+  --seq-2: #0f4a66;
+  --seq-3: #0b6a8c;
+  --seq-4: #0b8fb3;
+  --seq-5: #22b6db;
+
+  /* Status: never reused as a series colour, always shipped with an icon and a label. */
+  --good: #3fb27f;
+  --warn: #ffcc04;
+  --serious: #f08a24;
+  --critical: #ff4d52;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Helvetica Neue', 'Arial Black', 'Inter', system-ui, sans-serif;
+  --mono: ui-monospace, 'Cascadia Mono', 'SF Mono', Consolas, monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background:
+    linear-gradient(rgba(3, 188, 230, 0.035) 1px, transparent 1px) 0 0 / 32px 32px,
+    linear-gradient(90deg, rgba(3, 188, 230, 0.035) 1px, transparent 1px) 0 0 / 32px 32px,
+    radial-gradient(1200px 600px at 70% -10%, rgba(8, 78, 145, 0.35), transparent 60%),
+    var(--bg);
+  color: var(--text-1);
+  font: 14px/1.5 var(--font);
+  font-feature-settings: 'tnum' 1, 'cv11' 1;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+h1, h2, h3 { margin: 0; line-height: 1.2; }
+h1 { font: 800 22px/1.15 var(--font-display); letter-spacing: 0.01em; font-stretch: expanded; }
+h2 { font-size: 13px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-2); }
+h3 { font-size: 14px; font-weight: 600; }
+p { margin: 0; }
+
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.muted { color: var(--text-3); }
+.small { font-size: 12px; }
+.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Grid helpers */
+.grid { display: grid; gap: 16px; }
+.grid > * { min-width: 0; }
+.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.span-2 { grid-column: span 2; }
+.split { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+/* Breakpoints account for the 236px sidebar: a 1000px viewport leaves ~720px of content. */
+@media (max-width: 1100px) {
+  .cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cols-3, .split { grid-template-columns: minmax(0, 1fr); }
+  .span-2 { grid-column: auto; }
+}
+@media (max-width: 1000px) {
+  .cols-2 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .cols-2, .cols-4 { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: 0 -4px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--text-3); font-weight: 600; font-size: 11.5px; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; }
+th a { color: inherit; }
+tbody tr:hover { background: rgba(255, 255, 255, 0.025); }
+td.num, th.num { text-align: right; }
+td.mono { white-space: nowrap; }
+table.wide { min-width: 980px; }
+
+/* Forms */
+label { display: grid; gap: 4px; font-size: 12px; color: var(--text-2); }
+input, select, button { font: inherit; color: inherit; }
+input[type='text'], input[type='search'], input[type='number'], select {
+  background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  padding: 7px 10px; min-height: 34px; color: var(--text-1); width: 100%;
+}
+input::placeholder { color: var(--text-3); }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 6px 14px;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--surface-2);
+  color: var(--text-1); font-weight: 600; font-size: 13px; cursor: pointer; text-decoration: none; white-space: nowrap;
+}
+.btn:hover { background: var(--surface-3); text-decoration: none; }
+.btn.primary { background: var(--action); border-color: var(--action); color: #fff; }
+.btn.primary:hover { background: #d81f25; }
+.btn.ghost { background: transparent; }
+.btn[disabled], .btn[aria-disabled='true'] { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+
+/* Shared chart anatomy (Columns.astro, Lines.astro). Grid and axes stay recessive; text wears text tokens. */
+.chart { margin: 0; display: grid; gap: 6px; overflow-x: auto; overflow-y: hidden; }
+/* Below ~380px the SVG text would shrink past legible, so narrow panels scroll the chart instead. */
+.chart svg { width: 100%; min-width: 380px; height: auto; display: block; }
+.chart .grid { stroke: var(--border); stroke-width: 1; }
+.chart .baseline { stroke: var(--border-strong); stroke-width: 1; }
+.chart .axis { fill: var(--text-3); font-size: 11px; font-family: var(--font); }
+.chart .axis.end { fill: var(--text-2); font-weight: 600; }
+.chart .refline { stroke: var(--text-1); stroke-width: 1.5; stroke-dasharray: 3 2; opacity: 0.8; }
+.chart .xhair { stroke: var(--text-3); stroke-width: 1; opacity: 0; }
+.chart .dot { opacity: 0; stroke: var(--surface-1); stroke-width: 2; }
+.chart .hover:hover .xhair, .chart .hover:hover .dot { opacity: 1; }
+.chart .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--text-2); }
+.chart .legend span { display: inline-flex; align-items: center; gap: 6px; }
+.chart .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.chart .legend i.line { height: 2px; width: 14px; border-radius: 1px; }
+.chart .legend i.ref { height: 0; width: 14px; border-top: 1.5px dashed var(--text-1); border-radius: 0; }
+.tv summary { cursor: pointer; font-size: 12px; color: var(--text-3); width: max-content; }
+.tv summary:hover { color: var(--text-2); }
+.tv[open] summary { margin-bottom: 6px; }
+.tv table { font-size: 12px; }
+
+/* Chart tooltip (one shared element, driven by [data-tip] in Shell.astro) */
+#hub-tip {
+  position: fixed; z-index: 50; pointer-events: none; max-width: 260px; padding: 7px 10px; border-radius: 6px;
+  background: #06101d; border: 1px solid var(--border-strong); color: var(--text-1); font-size: 12px; line-height: 1.4;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); opacity: 0; transform: translateY(4px); transition: opacity 0.1s, transform 0.1s;
+  white-space: pre-line;
+}
+#hub-tip.on { opacity: 1; transform: none; }
+[data-tip] { cursor: default; }
+svg [data-tip]:hover { filter: brightness(1.25); }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

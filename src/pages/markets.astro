@@ -1,0 +1,111 @@
+---
+import Shell from '../components/layout/Shell.astro';
+import Panel from '../components/ui/Panel.astro';
+import Kpi from '../components/ui/Kpi.astro';
+import Columns from '../components/charts/Columns.astro';
+import BarList from '../components/charts/BarList.astro';
+import Share from '../components/charts/Share.astro';
+import { load, hasData } from '../lib/load.ts';
+import { href, intParam, readGlobalFilters } from '../lib/filters.ts';
+import { HEATING_LABEL, num, pct, SOURCE_LABEL } from '../lib/format.ts';
+import { ratio } from '../lib/stats.ts';
+import type { HousingProfile } from '../repositories/types.ts';
+
+const { repos, now, simulate } = Astro.locals;
+const url = Astro.url;
+const g = readGlobalFilters(url);
+const opts = { simulate, now };
+
+const BUILT = [1950, 1960, 1970, 1980, 1990, 2000] as const;
+const PERMIT = [10, 15, 20] as const;
+const builtBefore = (BUILT as readonly number[]).includes(intParam(url, 'builtBefore', 1800, 2100) ?? 0) ? intParam(url, 'builtBefore', 1800, 2100)! : 1980;
+const noPermitYears = (PERMIT as readonly number[]).includes(intParam(url, 'noPermitYears', 1, 50) ?? 0) ? intParam(url, 'noPermitYears', 1, 50)! : 15;
+const noPermitSince = `${now.getUTCFullYear() - noPermitYears}-01-01`;
+
+const [profile, compare, aged, snapshots] = await Promise.all([
+  load(() => repos.markets.profile({ territory: g.territory, source: g.source }), { ...opts, isEmpty: (p) => p.homes === 0, asOf: (p) => p.asOf, staleKind: 'property' }),
+  load(() => repos.markets.compareTerritories({ source: g.source }), opts),
+  load(() => repos.markets.countByAgeAndPermit({ territory: g.territory, source: g.source, builtBefore, noPermitSince }), { ...opts, isEmpty: (c) => c.of === 0 }),
+  load(() => repos.markets.snapshotCount(), { ...opts, isEmpty: (n) => n < 2 })
+]);
+const p = hasData(profile) ? profile.data : null;
+const heatColors = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)', 'var(--series-5)', '#5d6b82'];
+const preYear = (x: HousingProfile, y: number) => x.byDecade.filter((d) => d.decade + 10 <= y).reduce((s, d) => s + d.homes, 0);
+const sourceLabel = g.source ? SOURCE_LABEL[g.source] : 'County assessor records';
+---
+<Shell title="Market Intelligence" question="What kinds of homes are in each territory, how old they are, and where equipment is most likely due, with every input shown.">
+  <div class="grid cols-4">
+    <Kpi label="Homes in scope" value={p ? num(p.homes) : '—'} detail={p?.label} error={profile.status === 'error' ? profile.message : undefined} />
+    <Kpi label="Median year built" value={p?.medianYearBuilt ? String(p.medianYearBuilt) : '—'} detail={p ? `${num(p.yearBuiltUnknown)} homes with no year on record` : undefined} error={profile.status === 'error' ? profile.message : undefined} />
+    <Kpi label="Central-air penetration" value={p ? pct(ratio(p.centralAir.yes, p.homes)) : '—'} detail={p ? `${num(p.centralAir.no)} without · ${num(p.centralAir.unknown)} unknown` : undefined} error={profile.status === 'error' ? profile.message : undefined} />
+    <Kpi label={`Built before ${builtBefore}`} value={p ? pct(ratio(preYear(p, builtBefore), p.homes - p.yearBuiltUnknown)) : '—'} detail={p ? `${num(preYear(p, builtBefore))} homes with a known year` : undefined} error={profile.status === 'error' ? profile.message : undefined} />
+  </div>
+
+  <Panel title="Older homes without a recent HVAC permit" subtitle="A transparent count, not a score. Change the inputs to see how it moves." result={aged} source={`${sourceLabel} · Cook County permits`}>
+    <form class="inputs" method="get">
+      {['territory', 'range', 'source', 'simulate'].map((k) => url.searchParams.get(k) && <input type="hidden" name={k} value={url.searchParams.get(k)!} />)}
+      <label>Built before<select name="builtBefore" onchange="this.form.requestSubmit()">{BUILT.map((y) => <option selected={y === builtBefore}>{y}</option>)}</select></label>
+      <label>No HVAC permit in<select name="noPermitYears" onchange="this.form.requestSubmit()">{PERMIT.map((y) => <option value={y} selected={y === noPermitYears}>{y}+ years (since {now.getUTCFullYear() - y})</option>)}</select></label>
+      <noscript><button class="btn" type="submit">Update</button></noscript>
+    </form>
+    {hasData(aged) && (
+      <div class="aged">
+        <p class="big"><strong>{num(aged.data.matching)}</strong> of {num(aged.data.of)} homes <span class="muted">({pct(ratio(aged.data.matching, aged.data.of))})</span></p>
+        <p class="muted small">Built before {builtBefore} and no HVAC permit on record since {now.getUTCFullYear() - noPermitYears}. This is <strong>not</strong> a confirmed equipment age: work done without a permit, or outside Cook County's permit data, won't show. Homes with no known year built are excluded.</p>
+        <a href={href('/properties', url, { yearMax: builtBefore - 1, noPermitYears })}>See these homes →</a>
+      </div>
+    )}
+  </Panel>
+
+  <div class="grid cols-2">
+    <Panel title="Home-age distribution" subtitle={p ? `${p.label} · homes by decade built` : undefined} result={profile} source={sourceLabel} emptyText="No homes match these filters.">
+      {p && <Columns title="Homes by decade built" height={200} unit=" homes" buckets={p.byDecade.map((d) => ({ label: `${d.decade}s`, tip: `Built ${d.decade}–${d.decade + 9}` }))} series={[{ name: 'Homes', color: 'var(--series-1)', values: p.byDecade.map((d) => d.homes) }]} />}
+    </Panel>
+    <Panel title="Size and systems" subtitle={p?.label} result={profile} source={sourceLabel} emptyText="No homes match these filters.">
+      {p && (
+        <div class="stack">
+          <div><h3 class="h">Square footage</h3><BarList rows={p.bySqftBand.map((b) => ({ label: b.band, value: b.homes }))} shareOf={p.homes} /></div>
+          <div><h3 class="h">Heating type</h3><Share parts={p.byHeatingType.map((h, i) => ({ label: HEATING_LABEL[h.type] ?? h.type, value: h.homes, color: heatColors[i]! }))} /></div>
+          <div><h3 class="h">Central air</h3><Share parts={[{ label: 'Yes', value: p.centralAir.yes, color: 'var(--series-1)' }, { label: 'No', value: p.centralAir.no, color: 'var(--series-2)' }, { label: 'Unknown', value: p.centralAir.unknown, color: '#5d6b82' }]} /></div>
+        </div>
+      )}
+    </Panel>
+  </div>
+
+  <Panel title="Territory comparison" subtitle="Townships with indexed homes. The territory filter doesn't apply here; every territory is shown." result={compare} source={sourceLabel} flush emptyText="No townships have indexed homes yet.">
+    <div class="table-wrap"><table>
+      <thead><tr><th>Township</th><th class="num">Homes</th><th class="num">Median built</th><th class="num">Median sq ft</th><th class="num">Pre-{builtBefore}</th><th class="num">Central air</th><th class="num">HVAC permit</th><th style="width:26%">Heating mix</th></tr></thead>
+      <tbody>
+        {hasData(compare) && compare.data.map((t) => (
+          <tr class:list={{ cur: t.territory === g.territory }}>
+            <td><a href={href('/markets', url, { territory: t.territory })}>{t.label.replace(' Township', '')}</a></td>
+            <td class="num">{num(t.homes)}</td>
+            <td class="num">{t.medianYearBuilt ?? '—'}</td>
+            <td class="num">{num(t.medianSqft)}</td>
+            <td class="num">{pct(ratio(preYear(t, builtBefore), t.homes - t.yearBuiltUnknown))}</td>
+            <td class="num">{pct(ratio(t.centralAir.yes, t.homes))}</td>
+            <td class="num">{pct(ratio(t.withHvacPermit, t.homes))}</td>
+            <td><Share compact parts={t.byHeatingType.map((h, i) => ({ label: HEATING_LABEL[h.type] ?? h.type, value: h.homes, color: heatColors[i]! }))} /></td>
+          </tr>
+        ))}
+      </tbody>
+    </table></div>
+  </Panel>
+
+  <Panel title="Trends over time" result={snapshots} emptyText="Trends start once there are at least two monthly snapshots. The snapshot job isn't scheduled yet.">
+    <p>Snapshot trends would render here.</p>
+  </Panel>
+</Shell>
+
+<style>
+  .inputs { display: flex; gap: 12px; flex-wrap: wrap; }
+  .inputs label { min-width: 200px; }
+  .aged { display: grid; gap: 6px; margin-top: 14px; }
+  .big { font-size: 18px; }
+  .big strong { font: 800 28px var(--font-display); font-stretch: expanded; color: var(--accent); }
+  .stack { display: grid; gap: 18px; }
+  .stack > * { min-width: 0; }
+  .h { font-size: 12px; color: var(--text-2); font-weight: 600; margin-bottom: 8px; }
+  tr.cur { background: var(--accent-dim); }
+  table td:first-child, table th:first-child { padding-left: 18px; }
+</style>

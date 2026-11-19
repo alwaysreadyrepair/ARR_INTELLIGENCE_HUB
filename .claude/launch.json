@@ -1,0 +1,7 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "intelligence-hub", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 4322 },
+    { "name": "intelligence-hub-preview", "runtimeExecutable": "npm", "runtimeArgs": ["run", "preview"], "port": 4322 }
+  ]
+}

@@ -1,0 +1,135 @@
+---
+import Shell from '../../components/layout/Shell.astro';
+import Panel from '../../components/ui/Panel.astro';
+import Status from '../../components/ui/Status.astro';
+import Icon from '../../components/ui/Icon.astro';
+import { load, hasData } from '../../lib/load.ts';
+import { freshness } from '../../lib/freshness.ts';
+import { href } from '../../lib/filters.ts';
+import { COUNTY_LABEL, date, dateTime, HEATING_LABEL, num, relative, usd } from '../../lib/format.ts';
+import type { PropertyFacts } from '../../domain/types.ts';
+
+const { repos, now, simulate } = Astro.locals;
+const url = Astro.url;
+const id = Astro.params.id ?? '';
+
+const result = await load(async () => {
+  const p = await repos.properties.get(id);
+  if (!p) return null;
+  const areas = await repos.weather.areas();
+  return { p, weatherArea: areas.find((a) => a.id === p.weatherAreaId) ?? null };
+}, { simulate, now, isEmpty: (d) => d == null, asOf: (d) => d?.p.lastRefreshedAt ?? null, staleKind: 'property' });
+if (result.status === 'empty') Astro.response.status = 404;
+
+const d = hasData(result) ? result.data : null;
+const p = d?.p;
+const FACTS: { key: keyof PropertyFacts; label: string; fmt: (v: unknown) => string }[] = [
+  { key: 'yearBuilt', label: 'Year built', fmt: (v) => (v == null ? '' : String(v)) },
+  { key: 'sqft', label: 'Square footage', fmt: (v) => (v == null ? '' : num(v as number)) },
+  { key: 'stories', label: 'Stories', fmt: (v) => (v == null ? '' : String(v)) },
+  { key: 'heatingType', label: 'Heating', fmt: (v) => HEATING_LABEL[v as string] ?? String(v) },
+  { key: 'centralAir', label: 'Central air', fmt: (v) => String(v) },
+  { key: 'basement', label: 'Basement', fmt: (v) => String(v) }
+];
+const override = (k: keyof PropertyFacts) => p?.overrides.find((o) => o.field === k);
+const age = p?.yearBuilt ? now.getFullYear() - p.yearBuilt : null;
+---
+<Shell title={p ? p.address : 'Property'} question={p ? `${p.city}, IL ${p.zip} · ${p.township} Township, ${COUNTY_LABEL[p.county]} County` : undefined} filters={{}}>
+  <a slot="actions" class="btn ghost" href={href('/properties', url)}><Icon name="back" size={15} /> Back to properties</a>
+
+  {!p && (
+    <Panel title="Property" result={result} emptyText={`No property with id "${id}". It may have been merged as a duplicate.`}>
+      <a slot="empty" href={href('/properties', url)}>Search properties →</a>
+    </Panel>
+  )}
+
+  {p && d && (
+    <>
+      <div class="grid split">
+        <Panel title="Property record" result={result} source={p.primarySource.label}>
+          <div slot="actions"><Status value={freshness(p.lastRefreshedAt, 'property', now)} label={`Refreshed ${relative(p.lastRefreshedAt, now)}`} /></div>
+          <dl class="facts">
+            <dt>PIN</dt><dd class="mono">{p.pin}</dd>
+            {FACTS.map((f) => {
+              const o = override(f.key);
+              const v = f.fmt(p[f.key]);
+              return (
+                <>
+                  <dt>{f.label}</dt>
+                  <dd>
+                    {o ? <><span class="ovr">{f.fmt(o.value)}</span> <span class="muted small">(manual override; source says {v || 'nothing'})</span></> : v || <span class="miss">Missing from source</span>}
+                    {f.key === 'yearBuilt' && age != null && <span class="muted small"> · {age} years old</span>}
+                  </dd>
+                </>
+              );
+            })}
+            <dt>Last HVAC permit</dt><dd>{p.lastHvacPermitOn ? date(p.lastHvacPermitOn) : <span class="muted">None on record</span>}</dd>
+            <dt>Weather area</dt><dd>{d.weatherArea ? <a href={href('/weather', url, { area: d.weatherArea.id })}>{d.weatherArea.name}</a> : p.weatherAreaId} <span class="muted small">(weather is stored per area, not per home)</span></dd>
+          </dl>
+          <p class="note small muted">Year built and permit dates describe the house, not the age of its equipment. A home with no permit on record may still have had equipment replaced without one.</p>
+        </Panel>
+
+        <Panel title="Source history" subtitle={`${p.versions.length} version${p.versions.length === 1 ? '' : 's'} from source releases`} source="Property versions">
+          {p.versions.length === 0 ? (
+            <p class="muted">No version history. This record was created outside an import (e.g. a suspected duplicate).</p>
+          ) : (
+            <ol class="timeline">
+              {[...p.versions].reverse().map((v) => (
+                <li>
+                  <span class="dot" aria-hidden="true"></span>
+                  <div>
+                    <strong>v{v.version} · {v.source.label}</strong>
+                    <p class="muted small">Captured {dateTime(v.capturedAt)}{v.ingestionJobId && <> · job <a class="mono" href={href('/imports', url, { job: v.ingestionJobId })}>{v.ingestionJobId}</a></>}</p>
+                    {v.changedFields.length > 0 ? (
+                      <p class="chg">Changed: {v.changedFields.map((c) => {
+                        const prev = p.versions.find((x) => x.version === v.version - 1)?.facts[c];
+                        return <span><strong>{c}</strong> {String(prev ?? '—')} → {String(v.facts[c] ?? '—')}</span>;
+                      })}</p>
+                    ) : <p class="small muted">{v.version === 1 ? 'First version' : 'No changes from the previous version'}</p>}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+          {p.overrides.length > 0 && (
+            <>
+              <h3 class="h">Manual overrides</h3>
+              <ul class="plain">{p.overrides.map((o) => <li><strong>{o.field}</strong> → {o.value}. {o.reason} <span class="muted small">{o.by}, {date(o.at)}</span></li>)}</ul>
+            </>
+          )}
+        </Panel>
+      </div>
+
+      <div class="grid cols-2">
+        <Panel title="Permits" subtitle={`${p.permits.length} on record`} source="Cook County building permits" emptyText="No permits on record for this parcel." result={p.permits.length ? undefined : { status: 'empty', asOf: null }}>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Issued</th><th>Work</th><th>Type</th></tr></thead>
+            <tbody>{p.permits.map((pm) => <tr><td>{date(pm.issuedOn)}</td><td>{pm.description}</td><td>{pm.kind === 'hvac' ? <Status value="active" label="HVAC" /> : <span class="muted">Other</span>}</td></tr>)}</tbody>
+          </table></div>
+        </Panel>
+        <Panel title="Sales" subtitle="Internal only. Never shown to customers." source={p.primarySource.label} emptyText="No recorded sales." result={p.sales.length ? undefined : { status: 'empty', asOf: null }}>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Date</th><th class="num">Price</th></tr></thead>
+            <tbody>{p.sales.map((s) => <tr><td>{date(s.saleDate)}</td><td class="num">{usd(s.price)}</td></tr>)}</tbody>
+          </table></div>
+        </Panel>
+      </div>
+    </>
+  )}
+</Shell>
+
+<style>
+  .facts { display: grid; grid-template-columns: max-content 1fr; gap: 8px 18px; margin: 0; font-size: 13.5px; }
+  .facts dt { color: var(--text-3); }
+  .facts dd { margin: 0; }
+  .ovr { color: var(--accent); font-weight: 600; }
+  .miss { color: var(--serious); }
+  .note { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border); }
+  .timeline { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+  .timeline li { display: grid; grid-template-columns: 14px 1fr; gap: 10px; position: relative; }
+  .timeline li:not(:last-child)::before { content: ''; position: absolute; left: 6px; top: 16px; bottom: -14px; width: 2px; background: var(--border); }
+  .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--surface-1); border: 2px solid var(--accent); margin-top: 3px; }
+  .chg { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: var(--warn); margin-top: 2px; }
+  .h { font-size: 12px; color: var(--text-2); margin: 16px 0 6px; }
+  .plain { margin: 0; padding-left: 18px; font-size: 13px; display: grid; gap: 4px; }
+</style>

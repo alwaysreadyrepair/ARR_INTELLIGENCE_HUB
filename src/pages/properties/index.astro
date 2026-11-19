@@ -1,0 +1,144 @@
+---
+import Shell from '../../components/layout/Shell.astro';
+import Panel from '../../components/ui/Panel.astro';
+import Status from '../../components/ui/Status.astro';
+import { load, hasData } from '../../lib/load.ts';
+import { freshness, newest } from '../../lib/freshness.ts';
+import { enumParam, href, intParam, readGlobalFilters } from '../../lib/filters.ts';
+import { date, HEATING_LABEL, num, relative } from '../../lib/format.ts';
+import type { PropertyQuery } from '../../repositories/types.ts';
+import type { Basement, CentralAir, HeatingType, Stories } from '../../domain/types.ts';
+
+const { repos, now, simulate } = Astro.locals;
+const url = Astro.url;
+const g = readGlobalFilters(url);
+
+const STORIES = ['1', '1.5', '2', '3+', 'split'] as const satisfies readonly Stories[];
+const HEATING = ['forced-air-gas', 'boiler', 'heat-pump', 'electric', 'other', 'unknown'] as const satisfies readonly HeatingType[];
+const AIR = ['yes', 'no', 'unknown'] as const satisfies readonly CentralAir[];
+const BASEMENT = ['full', 'partial', 'crawl', 'slab', 'unknown'] as const satisfies readonly Basement[];
+const PERMIT_YEARS = [5, 10, 15, 20] as const;
+const SORTS = ['address', 'yearBuilt', 'sqft', 'lastRefreshedAt'] as const;
+
+const facets = await load(() => repos.properties.facets(), { simulate: null });
+const f = hasData(facets) ? facets.data : { zips: [], cities: [], townships: [] };
+const territoryName = g.territory ? (await repos.coverage.get(g.territory).catch(() => null))?.name.replace(/ Township$/, '') : undefined;
+
+const permitYears = intParam(url, 'noPermitYears', 1, 50);
+const q: PropertyQuery = {
+  q: url.searchParams.get('q')?.trim() || undefined,
+  zip: enumParam(url, 'zip', f.zips),
+  township: enumParam(url, 'township', f.townships) ?? territoryName,
+  yearBuiltMin: intParam(url, 'yearMin', 1800, 2030),
+  yearBuiltMax: intParam(url, 'yearMax', 1800, 2030),
+  sqftMin: intParam(url, 'sqftMin', 0, 20000),
+  sqftMax: intParam(url, 'sqftMax', 0, 20000),
+  stories: enumParam(url, 'stories', STORIES),
+  heatingType: enumParam(url, 'heating', HEATING),
+  centralAir: enumParam(url, 'air', AIR),
+  basement: enumParam(url, 'basement', BASEMENT),
+  noHvacPermitSince: permitYears ? `${now.getUTCFullYear() - permitYears}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01` : undefined,
+  source: g.source,
+  sort: enumParam(url, 'sort', SORTS) ?? 'address',
+  dir: url.searchParams.get('dir') === 'desc' ? 'desc' : 'asc',
+  page: intParam(url, 'page', 1, 10000) ?? 1,
+  pageSize: 25
+};
+const result = await load(() => repos.properties.search(q), { simulate, now, asOf: (p) => newest(p.items.map((i) => i.lastRefreshedAt)) });
+const page = hasData(result) ? result.data : null;
+const pages = page ? Math.max(1, Math.ceil(page.total / page.pageSize)) : 1;
+const sortHref = (key: (typeof SORTS)[number]) => href(url.pathname, url, { ...Object.fromEntries(url.searchParams), sort: key, dir: q.sort === key && q.dir === 'asc' ? 'desc' : 'asc', page: undefined });
+const pageHref = (n: number) => href(url.pathname, url, { ...Object.fromEntries(url.searchParams), page: n > 1 ? n : undefined });
+const active = [...url.searchParams.keys()].filter((k) => !['territory', 'range', 'source', 'simulate', 'sort', 'dir', 'page'].includes(k) && url.searchParams.get(k)).length;
+const sel = (k: string, v: string) => url.searchParams.get(k) === v;
+const arrow = (key: string) => (q.sort === key ? (q.dir === 'asc' ? ' ↑' : ' ↓') : '');
+---
+<Shell title="Properties" question="Find homes by address or PIN, or narrow by age, size, equipment and permit history." filters={{ territory: true, source: true }}>
+  <form class="panel-lite filters" method="get" action="/properties">
+    {['territory', 'range', 'source', 'simulate'].map((k) => url.searchParams.get(k) && <input type="hidden" name={k} value={url.searchParams.get(k)!} />)}
+    <label class="wide">Address or PIN<input type="search" name="q" value={q.q ?? ''} placeholder="e.g. 14320 Ravinia or 27-09-301-012" /></label>
+    <label>ZIP
+      <select name="zip"><option value="">Any</option>{f.zips.map((z) => <option selected={q.zip === z}>{z}</option>)}</select>
+    </label>
+    <label>Township
+      <select name="township" disabled={!!territoryName} title={territoryName ? 'Set by the territory filter' : undefined}>
+        <option value="">Any</option>{f.townships.map((t) => <option selected={q.township === t}>{t}</option>)}
+      </select>
+    </label>
+    <fieldset><legend>Year built</legend>
+      <input type="number" name="yearMin" placeholder="From" value={q.yearBuiltMin ?? ''} min="1800" max="2030" aria-label="Built from year" />
+      <input type="number" name="yearMax" placeholder="To" value={q.yearBuiltMax ?? ''} min="1800" max="2030" aria-label="Built to year" />
+    </fieldset>
+    <fieldset><legend>Sq ft</legend>
+      <input type="number" name="sqftMin" placeholder="Min" value={q.sqftMin ?? ''} min="0" step="100" aria-label="Minimum square feet" />
+      <input type="number" name="sqftMax" placeholder="Max" value={q.sqftMax ?? ''} min="0" step="100" aria-label="Maximum square feet" />
+    </fieldset>
+    <label>Stories<select name="stories"><option value="">Any</option>{STORIES.map((s) => <option selected={sel('stories', s)}>{s}</option>)}</select></label>
+    <label>Heating<select name="heating"><option value="">Any</option>{HEATING.map((h) => <option value={h} selected={sel('heating', h)}>{HEATING_LABEL[h]}</option>)}</select></label>
+    <label>Central air<select name="air"><option value="">Any</option>{AIR.map((a) => <option value={a} selected={sel('air', a)}>{a[0]!.toUpperCase() + a.slice(1)}</option>)}</select></label>
+    <label>Basement<select name="basement"><option value="">Any</option>{BASEMENT.map((b) => <option value={b} selected={sel('basement', b)}>{b[0]!.toUpperCase() + b.slice(1)}</option>)}</select></label>
+    <label>Last HVAC permit<select name="noPermitYears"><option value="">Any</option>{PERMIT_YEARS.map((y) => <option value={y} selected={permitYears === y}>None in {y}+ years</option>)}</select></label>
+    <div class="actions">
+      <button class="btn primary" type="submit">Search</button>
+      {active > 0 && <a class="btn ghost" href={href('/properties', url)}>Clear ({active})</a>}
+    </div>
+  </form>
+
+  <Panel title="Results" subtitle={page ? `${num(page.total)} homes${territoryName ? ` in ${territoryName} Township` : ''}` : undefined} result={result} source="County assessor records · Cook County permits" emptyText="No homes match these filters. Loosen a filter or clear them." flush>
+    <div class="table-wrap">
+      <table class="wide">
+        <thead>
+          <tr>
+            <th><a href={sortHref('address')}>Address{arrow('address')}</a></th>
+            <th>PIN</th>
+            <th class="num"><a href={sortHref('yearBuilt')}>Built{arrow('yearBuilt')}</a></th>
+            <th class="num"><a href={sortHref('sqft')}>Sq ft{arrow('sqft')}</a></th>
+            <th>Stories</th>
+            <th>Heating</th>
+            <th>A/C</th>
+            <th>Basement</th>
+            <th>Last HVAC permit</th>
+            <th><a href={sortHref('lastRefreshedAt')}>Freshness{arrow('lastRefreshedAt')}</a></th>
+          </tr>
+        </thead>
+        <tbody>
+          {page?.items.map((p) => (
+            <tr>
+              <td><a href={href(`/properties/${p.id}`, url)}>{p.address}</a><br /><span class="muted small">{p.city} {p.zip} · {p.township}</span></td>
+              <td class="mono">{p.pin}</td>
+              <td class="num">{p.yearBuilt ?? <span class="miss">missing</span>}</td>
+              <td class="num">{p.sqft ? num(p.sqft) : <span class="miss">missing</span>}</td>
+              <td>{p.stories ?? <span class="miss">—</span>}</td>
+              <td>{HEATING_LABEL[p.heatingType]}</td>
+              <td>{p.centralAir}</td>
+              <td>{p.basement}</td>
+              <td>{p.lastHvacPermitOn ? date(p.lastHvacPermitOn) : <span class="muted">None on record</span>}</td>
+              <td><Status value={freshness(p.lastRefreshedAt, 'property', now)} label={relative(p.lastRefreshedAt, now)} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+    {page && pages > 1 && (
+      <nav class="pager" aria-label="Pagination">
+        <a class:list={['btn', { dis: page.page <= 1 }]} href={pageHref(page.page - 1)} aria-disabled={page.page <= 1 ? 'true' : undefined}>← Prev</a>
+        <span class="muted small">Page {page.page} of {pages}</span>
+        <a class:list={['btn', { dis: page.page >= pages }]} href={pageHref(page.page + 1)} aria-disabled={page.page >= pages ? 'true' : undefined}>Next →</a>
+      </nav>
+    )}
+  </Panel>
+</Shell>
+
+<style>
+  .panel-lite { background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+  .filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); gap: 12px; align-items: end; }
+  .wide { grid-column: span 2; }
+  fieldset { border: 0; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; min-width: 0; }
+  legend { font-size: 12px; color: var(--text-2); padding: 0; margin-bottom: 4px; }
+  .actions { display: flex; gap: 8px; }
+  .miss { color: var(--serious); font-size: 12px; }
+  .pager { display: flex; justify-content: space-between; align-items: center; padding: 12px 18px 4px; }
+  .dis { opacity: 0.4; pointer-events: none; }
+  table td:first-child, table th:first-child { padding-left: 18px; }
+  @media (max-width: 640px) { .wide { grid-column: auto; } }
+</style>
