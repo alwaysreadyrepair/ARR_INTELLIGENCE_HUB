@@ -20,15 +20,20 @@ is one of the Hub's data consumers (see `/projects`).
 
 ## Local development
 
-Node ≥ 22:
+Node ≥ 22.23.4 (Astro 7's floor; `.nvmrc` pins Node 22, so `nvm use` picks it up):
 
 ```bash
 npm install
-npm run dev      # http://localhost:4322
+npm run dev      # http://localhost:4322 (Astro 7 runs it in the background: `npx astro dev stop` / `status` / `logs`)
 npm run test     # lib + mock-repository tests (node --test)
 npm run check    # astro check (types)
-npm run build    # production build (Cloudflare adapter)
+npm run build    # production build (Cloudflare adapter, deploys as a Worker)
+npm run preview  # serve the build in workerd
 ```
+
+`dev`, `check` and `build` first run `npm run types` (`wrangler types`), which generates the `Env` type from
+`wrangler.json` into `worker-configuration.d.ts` (git-ignored). Server code reads bindings and vars with
+`import { env } from 'cloudflare:workers'`; `Astro.locals.runtime` no longer exists.
 
 **Reviewing data states.** In mock mode, append `?simulate=error`, `?simulate=empty` or `?simulate=slow` to any URL to
 force that state on every panel. Stale data needs no simulating: the mock Lyons and Worth townships are deliberately

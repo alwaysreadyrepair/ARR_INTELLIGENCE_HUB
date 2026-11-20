@@ -7,3 +7,4 @@ dist/
 *.local
 .seo/
 .DS_Store
+worker-configuration.d.ts
