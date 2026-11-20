@@ -68,11 +68,11 @@ const first = tiles.find((t) => t.f === 'stale') ?? tiles[0];
           <>
             <h3>{d.name}</h3>
             <dl>
-              <dt>County</dt><dd>{d.county}</dd>
-              <dt>Homes indexed</dt><dd>{d.homes} of ~{d.expected}</dd>
-              <dt>Completeness</dt><dd>{d.completeness}</dd>
-              <dt>Refreshed</dt><dd>{d.refreshed}</dd>
-              <dt>Source</dt><dd>{d.source}</dd>
+              <div><dt>County</dt><dd>{d.county}</dd></div>
+              <div><dt>Homes indexed</dt><dd>{d.homes} of ~{d.expected}</dd></div>
+              <div><dt>Completeness</dt><dd>{d.completeness}</dd></div>
+              <div><dt>Refreshed</dt><dd>{d.refreshed}</dd></div>
+              <div class="wide"><dt>Source</dt><dd>{d.source}</dd></div>
             </dl>
             <div class="links"><a href={d.properties}>Properties →</a><a href={d.coverage}>Coverage →</a></div>
           </>
@@ -104,39 +104,42 @@ const first = tiles.find((t) => t.f === 'stale') ?? tiles[0];
       const d = JSON.parse(tile.dataset.tile!);
       const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
       card.innerHTML = `<h3>${esc(d.name)}</h3><dl>
-        <dt>County</dt><dd>${esc(d.county)}</dd>
-        <dt>Homes indexed</dt><dd>${esc(d.homes)} of ~${esc(d.expected)}</dd>
-        <dt>Completeness</dt><dd>${d.freshness === 'missing' ? 'Not ingested' : esc(d.completeness)}</dd>
-        <dt>Refreshed</dt><dd>${esc(d.refreshed)}</dd>
-        <dt>Source</dt><dd>${esc(d.source)}</dd></dl>
+        <div><dt>County</dt><dd>${esc(d.county)}</dd></div>
+        <div><dt>Homes indexed</dt><dd>${esc(d.homes)} of ~${esc(d.expected)}</dd></div>
+        <div><dt>Completeness</dt><dd>${d.freshness === 'missing' ? 'Not ingested' : esc(d.completeness)}</dd></div>
+        <div><dt>Refreshed</dt><dd>${esc(d.refreshed)}</dd></div>
+        <div class="wide"><dt>Source</dt><dd>${esc(d.source)}</dd></div></dl>
         <div class="links">${d.freshness === 'missing' ? `<a href="${esc(d.imp)}">Plan an import →</a>` : `<a href="${esc(d.properties)}">Properties →</a>`}<a href="${esc(d.coverage)}">Coverage →</a></div>`;
     });
   }
 </script>
 
 <style>
-  .tmap { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 16px; align-items: start; }
+  .tmap { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 16px; align-items: start; }
   svg { width: 100%; height: auto; max-height: 440px; }
   .tile rect { stroke: rgba(255, 255, 255, 0.06); stroke-width: 1; transition: stroke 0.1s; }
   .tile:hover rect, .tile:focus rect { stroke: var(--text-1); stroke-width: 2; }
-  .tile.sel rect { stroke: var(--accent); stroke-width: 2.5; filter: drop-shadow(0 0 6px rgba(3, 188, 230, 0.6)); }
+  .tile.sel rect { stroke: var(--accent); stroke-width: 2.5; }
   .tile.stale rect { stroke: var(--warn); stroke-dasharray: 5 4; stroke-width: 1.5; }
   .tile:focus { outline: none; }
-  .z { fill: #fff; font: 700 14px var(--font); }
+  .z { fill: #fff; font: 500 14px var(--mono); }
   .c { fill: rgba(255, 255, 255, 0.82); font: 500 11px var(--font); }
-  .p { fill: #fff; font: 700 13px var(--font); }
+  .p { fill: #fff; font: 600 13px var(--font); }
   .missing .z, .missing .c, .missing .p { fill: var(--text-2); }
   /* Bright tiles take dark ink: white on the top two steps falls under 3:1. */
   .bright .z, .bright .p { fill: #04121c; }
   .bright .c { fill: rgba(4, 18, 28, 0.85); }
   .clock { fill: #1b1400; stroke: var(--warn); stroke-width: 1.4; stroke-linecap: round; }
-  .card { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size: 12.5px; display: grid; gap: 12px; }
-  .card :global(h3) { font-size: 13.5px; margin-bottom: 8px; }
-  .card :global(dl) { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0; }
-  .card :global(dt) { color: var(--text-3); }
-  .card :global(dd) { margin: 0; text-align: right; }
+  .card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; font-size: var(--fs-sm); display: grid; gap: 12px; }
+  .card :global(h3) { font-size: var(--fs-md); margin-bottom: 10px; }
+  /* Label above value: long values ("Cook County Assessor 2024") wrap as a sentence, not a right-aligned column. */
+  .card :global(dl) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 12px; margin: 0; }
+  .card :global(dl > div) { display: grid; gap: 1px; min-width: 0; }
+  .card :global(dl > div.wide) { grid-column: 1 / -1; }
+  .card :global(dt) { font: 500 11px/1.4 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
+  .card :global(dd) { margin: 0; color: var(--text-1); font-variant-numeric: tabular-nums; }
   .card :global(.links) { display: flex; justify-content: space-between; margin-top: 10px; }
-  .key { list-style: none; margin: 0; padding: 10px 0 0; border-top: 1px solid var(--border); display: grid; gap: 5px; color: var(--text-2); font-size: 11.5px; }
+  .key { list-style: none; margin: 0; padding: 10px 0 0; border-top: 1px solid var(--border); display: grid; gap: 5px; color: var(--text-2); font-size: var(--fs-xs); }
   .key li { display: flex; gap: 8px; align-items: center; }
   .key i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
   .k-stale { border: 1.5px dashed var(--warn); }

@@ -130,23 +130,23 @@ const back = step === 3 ? without('step') : step === 2 ? without('county', 'area
 
 <style>
   .stepper { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; flex-wrap: wrap; counter-reset: s; }
-  .stepper li { display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-3); font-size: 13px; }
-  .stepper li span { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); font-size: 12px; font-weight: 700; }
+  .stepper li { display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-3); font-size: var(--fs-sm); }
+  .stepper li span { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); font-size: var(--fs-xs); font-weight: 700; }
   .stepper li.done { color: var(--text-2); }
   .stepper li.done span { background: var(--good); color: #04121c; }
   .stepper li.now { color: var(--text-1); border-color: var(--accent); background: var(--accent-dim); }
   .stepper li.now span { background: var(--accent); color: #04121c; }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 12px; }
-  .card { display: grid; gap: 6px; padding: 14px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-2); cursor: pointer; color: var(--text-1); font-size: 13.5px; align-content: start; }
+  .card { display: grid; gap: 6px; padding: 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-2); cursor: pointer; color: var(--text-1); font-size: var(--fs-sm); align-content: start; }
   .card:has(input:checked) { border-color: var(--accent); background: var(--accent-dim); }
   .card.off { opacity: 0.6; cursor: not-allowed; }
   .card input { justify-self: start; accent-color: var(--accent); }
   .nav { grid-column: 1 / -1; display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
   input[type='checkbox'] { accent-color: var(--accent); width: 16px; height: 16px; }
-  .prev > div { display: grid; gap: 2px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
-  .prev strong { font: 800 24px var(--font-display); font-stretch: expanded; }
+  .prev > div { display: grid; gap: 2px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+  .prev strong { font: 650 var(--fs-xl)/1.2 var(--font); letter-spacing: -0.02em; }
   .prev + p { margin-top: 12px; }
-  .rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
+  .rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: var(--fs-sm); }
   .rules li { display: flex; gap: 8px; align-items: center; }
   .rules :global(svg) { color: var(--good); }
 </style>

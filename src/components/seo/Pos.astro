@@ -14,12 +14,12 @@ const change = delta == null || delta === 0 ? '' : delta > 0 ? `, up ${delta}` :
 
 <style>
   .pos { display: inline-flex; align-items: baseline; gap: 4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .v { display: inline-block; min-width: 26px; text-align: center; padding: 1px 6px; border-radius: 5px; font-weight: 650; font-size: 12.5px; }
+  .v { display: inline-block; min-width: 26px; text-align: center; padding: 1px 6px; border-radius: 4px; font-weight: 650; font-size: var(--fs-sm); }
   .top3 .v { background: rgba(3, 188, 230, 0.2); color: var(--text-1); box-shadow: inset 0 0 0 1px rgba(3, 188, 230, 0.55); }
   .top10 .v { background: rgba(3, 188, 230, 0.08); color: var(--text-1); }
   .deep .v { color: var(--text-2); }
   .none .v { color: var(--text-3); }
-  .d { font-size: 10.5px; font-weight: 600; }
+  .d { font-size: var(--fs-xs); font-weight: 600; }
   .up { color: var(--good); }
   .down { color: var(--serious); }
   .muted { opacity: 0.6; }

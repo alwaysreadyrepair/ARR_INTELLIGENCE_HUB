@@ -29,7 +29,7 @@ const [profile, compare, aged, snapshots] = await Promise.all([
   load(() => repos.markets.snapshotCount(), { ...opts, isEmpty: (n) => n < 2 })
 ]);
 const p = hasData(profile) ? profile.data : null;
-const heatColors = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)', 'var(--series-5)', '#5d6b82'];
+const heatColors = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)', 'var(--series-5)', 'var(--series-other)'];
 const preYear = (x: HousingProfile, y: number) => x.byDecade.filter((d) => d.decade + 10 <= y).reduce((s, d) => s + d.homes, 0);
 const sourceLabel = g.source ? SOURCE_LABEL[g.source] : 'County assessor records';
 ---
@@ -66,7 +66,7 @@ const sourceLabel = g.source ? SOURCE_LABEL[g.source] : 'County assessor records
         <div class="stack">
           <div><h3 class="h">Square footage</h3><BarList rows={p.bySqftBand.map((b) => ({ label: b.band, value: b.homes }))} shareOf={p.homes} /></div>
           <div><h3 class="h">Heating type</h3><Share parts={p.byHeatingType.map((h, i) => ({ label: HEATING_LABEL[h.type] ?? h.type, value: h.homes, color: heatColors[i]! }))} /></div>
-          <div><h3 class="h">Central air</h3><Share parts={[{ label: 'Yes', value: p.centralAir.yes, color: 'var(--series-1)' }, { label: 'No', value: p.centralAir.no, color: 'var(--series-2)' }, { label: 'Unknown', value: p.centralAir.unknown, color: '#5d6b82' }]} /></div>
+          <div><h3 class="h">Central air</h3><Share parts={[{ label: 'Yes', value: p.centralAir.yes, color: 'var(--series-1)' }, { label: 'No', value: p.centralAir.no, color: 'var(--series-2)' }, { label: 'Unknown', value: p.centralAir.unknown, color: 'var(--series-other)' }]} /></div>
         </div>
       )}
     </Panel>
@@ -102,10 +102,10 @@ const sourceLabel = g.source ? SOURCE_LABEL[g.source] : 'County assessor records
   .inputs label { min-width: 200px; }
   .aged { display: grid; gap: 6px; margin-top: 14px; }
   .big { font-size: 18px; }
-  .big strong { font: 800 28px var(--font-display); font-stretch: expanded; color: var(--accent); }
+  .big strong { font: 650 var(--fs-kpi)/1.1 var(--font); letter-spacing: -0.02em; color: var(--accent); }
   .stack { display: grid; gap: 18px; }
   .stack > * { min-width: 0; }
-  .h { font-size: 12px; color: var(--text-2); font-weight: 600; margin-bottom: 8px; }
+  .h { font-size: var(--fs-xs); color: var(--text-2); font-weight: 600; margin-bottom: 8px; }
   tr.cur { background: var(--accent-dim); }
   table td:first-child, table th:first-child { padding-left: 18px; }
 </style>
