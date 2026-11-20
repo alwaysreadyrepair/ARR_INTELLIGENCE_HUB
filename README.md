@@ -183,7 +183,8 @@ The swap is one directory plus the factory. Pages and components don't change.
    rollups become views or RPCs (`percentile_cont` for medians, `date_trunc` for decades), so nothing reduces 250k
    rows in a Worker.
 3. **Implement `src/repositories/supabase/`.** One class per interface in `repositories/types.ts`. Use
-   `@supabase/supabase-js` with the anon key and row-level security. Keep `service_role` out of the Worker.
+   `@supabase/server` / `@supabase/supabase-js` with the publishable key and row-level security. Keep the secret
+   key (`sb_secret_…`, the old `service_role`) out of the Worker.
 4. **Wire the factory.** In `repositories/index.ts`, return the Supabase repositories when `DATA_SOURCE=supabase`.
    Until then, that setting makes every panel show an error rather than quietly falling back to mock numbers.
 5. **Auth.** Replace `DEV_USER` in `src/middleware.ts` with a Supabase Auth session check (redirect to sign-in when
@@ -193,7 +194,8 @@ The swap is one directory plus the factory. Pages and components don't change.
 7. Run the mock repository tests against the Supabase repositories as a contract test, then point `DATA_SOURCE` at
    Supabase.
 
-Env (`wrangler.json` vars / `.dev.vars` locally): `DATA_SOURCE`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`.
+Env (`wrangler.json` vars / `.dev.vars` locally): `DATA_SOURCE`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
+`SUPABASE_JWKS_URL` (Auth JWT verification for `@supabase/server`).
 
 **External sources to wire behind the same interfaces:**
 - Weather history: NOAA NCEI (Climate Data Online / GHCN-Daily). Needs a token and has request limits.

@@ -3,7 +3,10 @@ type Env = {
   /** 'mock' (default) or 'supabase'. See src/repositories/index.ts. */
   DATA_SOURCE?: string;
   SUPABASE_URL?: string;
-  SUPABASE_ANON_KEY?: string;
+  /** Publishable key (`sb_publishable_…`): safe in the Worker, row-level security applies. */
+  SUPABASE_PUBLISHABLE_KEY?: string;
+  /** Used by @supabase/server to verify Supabase Auth JWTs. */
+  SUPABASE_JWKS_URL?: string;
   /** 'mock' (default) or 'snapshot'. Where the SEO & AEO pages read from. See src/repositories/index.ts. */
   SEO_DATA_SOURCE?: string;
   /** KV namespace holding the SEO snapshot written by `npm run seo:load`. */

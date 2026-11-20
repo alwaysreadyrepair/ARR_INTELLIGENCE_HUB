@@ -14,6 +14,8 @@
   },
   "dependencies": {
     "@astrojs/cloudflare": "^12.5.0",
+    "@supabase/server": "^1.9.2",
+    "@supabase/supabase-js": "^2.119.2",
     "astro": "^5.7.0"
   },
   "devDependencies": {
