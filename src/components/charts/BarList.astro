@@ -25,7 +25,7 @@ const top = max ?? Math.max(1, ...rows.map((r) => r.value));
 
 <style>
   .bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
-  li { display: grid; grid-template-columns: minmax(90px, 34%) 1fr 64px; gap: 10px; align-items: center; font-size: 12.5px; }
+  li { display: grid; grid-template-columns: minmax(90px, 34%) 1fr 64px; gap: 10px; align-items: center; font-size: var(--fs-sm); }
   .lbl { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .track { height: 10px; background: rgba(255, 255, 255, 0.04); border-radius: 0 4px 4px 0; }
   .fill { display: block; height: 100%; border-radius: 0 4px 4px 0; min-width: 2px; }

@@ -117,15 +117,15 @@ const VERDICT: Record<string, string> = { none: 'Not checked', noanswer: 'No ans
   .matrix td:first-child { min-width: 280px; }
   .svc { display: block; margin-top: 2px; }
   tr.cur { background: var(--accent-dim); }
-  .v { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 12.5px; font-weight: 600; }
+  .v { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: var(--fs-sm); font-weight: 600; }
   .v.cited { color: var(--good); }
   .v.named { color: var(--accent); }
   .v.missing { color: var(--text-3); font-weight: 500; }
   .v.noanswer, .v.none { color: var(--text-3); font-weight: 500; font-style: italic; }
   .answers { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
-  .answer { display: grid; gap: 8px; align-content: start; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+  .answer { display: grid; gap: 8px; align-content: start; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
   .answer header { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
-  blockquote { margin: 0; padding-left: 10px; border-left: 2px solid var(--border-strong); color: var(--text-2); font-size: 13px; }
+  blockquote { margin: 0; padding-left: 10px; border-left: 2px solid var(--border-strong); color: var(--text-2); font-size: var(--fs-sm); }
   .hist { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
   .hist i { width: 10px; height: 10px; border-radius: 2px; background: rgba(255, 255, 255, 0.08); }
   .hist i.named { background: var(--accent); }

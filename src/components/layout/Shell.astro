@@ -24,16 +24,21 @@ try {
   // The filter bar should never take the page down. With no list, the territory menu offers "All" only.
 }
 
-const NAV = [
-  { path: '/', label: 'Overview', icon: 'overview' },
-  { path: '/properties', label: 'Properties', icon: 'home' },
-  { path: '/markets', label: 'Market Intelligence', icon: 'chart' },
-  { path: '/weather', label: 'Weather Intelligence', icon: 'weather' },
-  { path: '/coverage', label: 'Data Coverage', icon: 'map' },
-  { path: '/imports', label: 'Imports', icon: 'import' },
-  { path: '/quality', label: 'Data Quality', icon: 'shield' },
-  { path: '/seo', label: 'SEO & AEO', icon: 'globe' },
-  { path: '/projects', label: 'Projects & API', icon: 'key' }
+// Grouped by job, like the sidebar of a well-run ops tool. Group labels hide at phone width, where the nav is one strip.
+const NAV_GROUPS = [
+  { label: 'Intelligence', items: [
+    { path: '/', label: 'Overview', icon: 'overview' },
+    { path: '/properties', label: 'Properties', icon: 'home' },
+    { path: '/markets', label: 'Market Intelligence', icon: 'chart' },
+    { path: '/weather', label: 'Weather Intelligence', icon: 'weather' }
+  ] },
+  { label: 'Data operations', items: [
+    { path: '/coverage', label: 'Data Coverage', icon: 'map' },
+    { path: '/imports', label: 'Imports', icon: 'import' },
+    { path: '/quality', label: 'Data Quality', icon: 'shield' }
+  ] },
+  { label: 'Growth', items: [{ path: '/seo', label: 'SEO & AEO', icon: 'globe' }] },
+  { label: 'Platform', items: [{ path: '/projects', label: 'Projects & API', icon: 'key' }] }
 ] as const;
 // The SEO pages have their own data source (SEO_DATA_SOURCE), so the mock banner and footer follow it there.
 const onSeo = url.pathname === '/seo' || url.pathname.startsWith('/seo/');
@@ -52,7 +57,7 @@ const carry = [...url.searchParams].filter(([k]) => !['territory', 'range', 'sou
     <title>{title} · ARR Intelligence Hub</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2314284e'/%3E%3Cpath d='M16 6 25 26h-4l-5-11-5 11H7z' fill='%2303bce6'/%3E%3C/svg%3E" />
   </head>
   <body>
@@ -65,12 +70,17 @@ const carry = [...url.searchParams].filter(([k]) => !['territory', 'range', 'sou
           </span>
           <span><strong>ARR</strong> Intelligence Hub</span>
         </a>
-        <nav>
-          {NAV.map((n) => (
-            <a href={href(n.path, url)} class:list={['nav', { on: isActive(n.path) }]} aria-current={isActive(n.path) ? 'page' : undefined}>
-              <Icon name={n.icon} />
-              <span>{n.label}</span>
-            </a>
+        <nav aria-label="Sections">
+          {NAV_GROUPS.map((grp) => (
+            <div class="grp">
+              <span class="grp-label">{grp.label}</span>
+              {grp.items.map((n) => (
+                <a href={href(n.path, url)} class:list={['nav', { on: isActive(n.path) }]} aria-current={isActive(n.path) ? 'page' : undefined}>
+                  <Icon name={n.icon} size={16} />
+                  <span>{n.label}</span>
+                </a>
+              ))}
+            </div>
           ))}
         </nav>
         <div class="side-foot">
@@ -83,9 +93,9 @@ const carry = [...url.searchParams].filter(([k]) => !['territory', 'range', 'sou
 
       <div class="main-col">
         {(dataKind === 'mock' || user.stub) && (
-          <div class="banner" role="note">
-            {dataKind === 'mock' && <span><Icon name="flask" size={14} /> <strong>Mock data.</strong> Every number here is synthetic, generated for layout. Nothing is ARR's.</span>}
-            {user.stub && <span><Icon name="lock" size={14} /> <strong>No authentication.</strong> Dev session stub. Don't deploy until Supabase Auth is in.</span>}
+          <div class="classif" role="note" aria-label="Environment notice">
+            {dataKind === 'mock' && <span><Icon name="flask" size={13} /> <strong>Mock data</strong><span class="why"> // synthetic, for layout only. None of it is ARR's.</span></span>}
+            {user.stub && <span><Icon name="lock" size={13} /> <strong>No authentication</strong><span class="why"> // dev stub. Don't deploy before Supabase Auth.</span></span>}
           </div>
         )}
         <header class="topbar">
@@ -134,7 +144,8 @@ const carry = [...url.searchParams].filter(([k]) => !['territory', 'range', 'sou
           <slot />
         </main>
         <footer class="foot muted small">
-          ARR Heating + Cooling · Intelligence Hub v0.1 · data source: <span class="mono">{dataKind}</span>
+          <span>ARR Heating + Cooling · Intelligence Hub v0.1</span>
+          <span class="mono">SRC/{dataKind.toUpperCase()}</span>
         </footer>
       </div>
     </div>
@@ -173,57 +184,90 @@ const carry = [...url.searchParams].filter(([k]) => !['territory', 'range', 'sou
 </html>
 
 <style>
-  .skip { position: absolute; left: -999px; top: 8px; background: var(--surface-2); padding: 8px 12px; border-radius: 6px; z-index: 60; }
+  .skip { position: absolute; left: -999px; top: 8px; background: var(--surface-2); padding: 8px 12px; border-radius: var(--radius-sm); z-index: 60; }
   .skip:focus { left: 8px; }
   .app { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 100vh; }
+
+  /* Sidebar: the darkest surface, flat. The active item gets a lighter fill and a 2px accent bar, nothing else. */
   .side {
-    position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 18px; padding: 18px 12px;
-    background: linear-gradient(180deg, rgba(20, 40, 78, 0.55), rgba(10, 18, 32, 0.8)); border-right: 1px solid var(--border);
-    backdrop-filter: blur(6px);
+    position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 14px; padding: 16px 10px;
+    background: var(--bg-0); border-right: 1px solid var(--border); overflow-y: auto;
   }
-  .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px; color: var(--text-1); font-size: 14px; line-height: 1.2; }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 8px; color: var(--text-1); font-size: var(--fs-md); line-height: 1.2; }
   .brand:hover { text-decoration: none; }
-  .brand strong { font: 800 15px var(--font-display); font-stretch: expanded; letter-spacing: 0.04em; }
-  .mark svg { width: 32px; height: 32px; display: block; }
-  nav { display: grid; gap: 2px; }
-  .nav { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; color: var(--text-2); font-weight: 500; position: relative; }
-  .nav:hover { background: rgba(255, 255, 255, 0.04); color: var(--text-1); text-decoration: none; }
-  .nav.on { background: var(--accent-dim); color: var(--text-1); }
-  .nav.on::before { content: ''; position: absolute; left: -12px; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+  .brand strong { font-weight: 700; letter-spacing: 0.02em; }
+  .mark svg { width: 30px; height: 30px; display: block; }
+  nav { display: grid; gap: 14px; }
+  .grp { display: grid; gap: 1px; }
+  .grp-label { font: 500 11px/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); padding: 0 10px 4px; }
+  .nav {
+    display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 10px; border-radius: var(--radius-sm);
+    color: var(--text-2); font-weight: 500; font-size: var(--fs-sm); border-left: 2px solid transparent;
+  }
+  .nav :global(svg) { color: var(--text-3); }
+  .nav:hover { background: var(--surface-1); color: var(--text-1); text-decoration: none; }
+  .nav.on { background: var(--surface-3); color: var(--text-1); border-left-color: var(--accent); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
   .nav.on :global(svg) { color: var(--accent); }
-  .side-foot { margin-top: auto; border-top: 1px solid var(--border); padding: 14px 8px 0; }
-  .who { display: flex; gap: 10px; align-items: center; font-size: 13px; line-height: 1.3; }
-  .avatar { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--arr-blue); font-weight: 700; }
+  .side-foot { margin-top: auto; border-top: 1px solid var(--border); padding: 12px 8px 0; }
+  .who { display: flex; gap: 10px; align-items: center; font-size: var(--fs-sm); line-height: 1.3; }
+  .avatar { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-3); color: var(--text-1); font-weight: 600; font-size: var(--fs-sm); }
 
   .main-col { display: flex; flex-direction: column; min-width: 0; }
-  .banner { display: flex; flex-wrap: wrap; gap: 6px 24px; padding: 7px 24px; font-size: 12.5px; color: #1b1400; background: var(--warn); }
-  .banner span { display: inline-flex; align-items: center; gap: 6px; }
-  .topbar {
-    position: sticky; top: 0; z-index: 20; display: flex; gap: 16px; align-items: flex-end; justify-content: space-between; flex-wrap: wrap;
-    padding: 12px 24px; background: rgba(10, 18, 32, 0.86); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border);
+
+  /* Classification strip: the environment notice reads like a document marking, not a page-wide alarm. */
+  .classif {
+    display: flex; flex-wrap: wrap; gap: 4px 28px; padding: 6px 24px; font: 400 var(--fs-xs)/1.5 var(--mono);
+    color: var(--warn); background: #171303; border-bottom: 1px solid rgba(255, 204, 4, 0.35);
   }
-  .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
-  .f { min-width: 170px; }
-  .f span { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
+  .classif > span { display: inline-flex; align-items: center; gap: 7px; }
+  .classif .why { white-space: pre-wrap; }
+  .classif strong { font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; }
+
+  .topbar {
+    position: sticky; top: 0; z-index: 20; display: flex; gap: 10px 16px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+    padding: 10px 24px; background: rgba(11, 20, 34, 0.9); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border);
+  }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  /* Inline-label control: "TERRITORY  All territories ▾" in one bordered box. */
+  .f {
+    display: flex; align-items: center; gap: 0; min-width: 0; background: var(--surface-2); border: 1px solid var(--input);
+    border-radius: var(--radius-sm); padding-left: 10px;
+  }
+  .f:hover { border-color: #6a86b0; }
+  .f:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .f span { font: 500 11px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); white-space: nowrap; }
+  .f select { border: 0; background: transparent; min-height: 32px; width: auto; max-width: 200px; padding: 4px 8px; font-weight: 500; }
+  .f select:focus-visible { outline: none; }
   .search { position: relative; display: flex; align-items: center; min-width: 240px; }
   .search :global(svg) { position: absolute; left: 10px; color: var(--text-3); }
   .search input { padding-left: 32px; }
-  main { padding: 22px 24px 32px; display: grid; gap: 16px; align-content: start; }
+  main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; max-width: 1600px; width: 100%; }
   main > :global(*) { min-width: 0; }
-  .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 2px; }
-  .question { color: var(--text-2); margin-top: 6px; max-width: 70ch; }
+  .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px 16px; flex-wrap: wrap; margin-bottom: 4px; }
+  .question { color: var(--text-2); margin-top: 6px; max-width: 72ch; }
   .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-  .foot { padding: 12px 24px 24px; }
+  .foot { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 24px 24px; }
 
+  /* Phone and narrow tablet: the sidebar becomes a brand row plus one scrollable nav strip. */
   @media (max-width: 900px) {
     .app { grid-template-columns: minmax(0, 1fr); }
-    .side { position: static; height: auto; flex-direction: column; padding: 12px; }
-    nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .nav.on::before { display: none; }
+    .side { position: static; height: auto; padding: 10px 0 0; gap: 6px; border-right: 0; border-bottom: 1px solid var(--border); overflow: visible; }
+    .brand { padding: 0 16px 4px; }
+    nav { display: flex; gap: 2px; overflow-x: auto; padding: 0 12px 8px; scrollbar-width: none; scroll-snap-type: x proximity; }
+    nav::-webkit-scrollbar { display: none; }
+    .grp { display: contents; }
+    .grp-label { display: none; }
+    .nav { flex: none; white-space: nowrap; scroll-snap-align: start; border-left: 0; border-bottom: 2px solid transparent; border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+    .nav.on { border-bottom-color: var(--accent); border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
     .side-foot { display: none; }
-    .topbar { position: static; padding: 12px 16px; }
+    .classif { padding: 6px 16px; gap: 2px 16px; }
+    .classif .why { display: none; }
+    .topbar { position: static; padding: 10px 16px; }
+    .filters { flex-wrap: nowrap; overflow-x: auto; width: 100%; scrollbar-width: none; }
+    .filters::-webkit-scrollbar { display: none; }
+    .f { flex: none; }
+    .search { min-width: 0; flex: 1 1 100%; }
     main { padding: 16px; }
-    .banner { padding: 7px 16px; }
-    .f, .search { min-width: 0; flex: 1 1 150px; }
+    h1 { font-size: 22px; }
   }
 </style>

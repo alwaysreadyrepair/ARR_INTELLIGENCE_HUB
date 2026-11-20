@@ -122,9 +122,17 @@ thresholds live in one place (`STALE_AFTER_DAYS` in `src/lib/freshness.ts`).
 fixed-order categorical colours checked with the dataviz palette validator against the panel surface, and status
 colours reserved for status. Tokens are in `src/styles/global.css`.
 
-**Visual system.** A dark command-center theme on the ARR palette: navy and near-black surfaces, ARR light blue
-`#03bce6` for data and focus, ARR red `#ee292f` only for primary actions and critical states, and yellow only for
-warnings. Inter for text, Helvetica Neue Black Extended (system fallback) for headings and KPI values.
+**Visual system.** A quiet dark operations-room theme on the ARR palette, polished after a study of calm, status-led
+product UIs:
+- **Depth from a flat surface ladder** (`--bg-0` sidebar → `--bg` page → `--surface-1` card → `--surface-2` raised →
+  `--surface-3` selected), never from panel shadows or gradients. A faint plotting grid sits on the page canvas only.
+- **Colour means something.** ARR light blue `#03bce6` for data, focus and the active-nav bar; ARR red, deepened to
+  `#d0222a` so white text passes 4.5:1, only for the one primary action and critical states; yellow only for warnings
+  and the classification strip. Status pills are a 15% tint of their colour with an icon and a label.
+- **The intelligence character comes from type.** Inter for text and numbers; IBM Plex Mono, uppercase, for panel
+  titles, labels, codes, IDs and timestamps. Five sizes (12/13/14/16/24, plus 28 for KPIs), three radii (6/10/pill).
+- **One targeting motif:** corner brackets (`Panel feature`) on a page's hero element, the territory map.
+- Page navigation is underline tabs; filters are chips. Empty states show ghost rows and one sentence.
 
 ## SEO & AEO
 

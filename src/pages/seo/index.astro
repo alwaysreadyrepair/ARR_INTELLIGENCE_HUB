@@ -101,8 +101,8 @@ const money = (n: number | null) => (n == null ? '—' : n < 10 ? `$${n.toFixed(
   .note { margin-top: 10px; }
   .pad { padding: 8px 18px; }
   .fixes { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 8px; }
-  .fixes li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 13px; }
-  .spend { font-size: 15px; margin-bottom: 4px; }
-  .spend strong { font: 800 22px var(--font-display); font-stretch: expanded; color: var(--accent); }
+  .fixes li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: var(--fs-sm); }
+  .spend { font-size: var(--fs-lg); margin-bottom: 4px; }
+  .spend strong { font: 650 22px/1.2 var(--font); letter-spacing: -0.02em; color: var(--accent); }
   table td:first-child, table th:first-child { padding-left: 18px; }
 </style>

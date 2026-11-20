@@ -124,15 +124,15 @@ const obsSource = area ? `NOAA NCEI GHCN-Daily · station ${area.stationId}` : u
   .area-pick label { min-width: 200px; }
   .two { display: grid; gap: 16px; }
   .two > * { min-width: 0; }
-  .h { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--text-2); font-weight: 600; margin-bottom: 6px; }
+  .h { display: flex; gap: 6px; align-items: center; font-size: var(--fs-xs); color: var(--text-2); font-weight: 600; margin-bottom: 6px; }
   .alerts { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
   .alerts li { display: flex; gap: 10px; align-items: flex-start; }
   .fc { list-style: none; margin: 0 0 8px; padding: 0; display: grid; }
-  .fc li { display: grid; grid-template-columns: 44px 42px 42px 48px 1fr; gap: 8px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .fc li { display: grid; grid-template-columns: 44px 42px 42px 48px 1fr; gap: 8px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: var(--fs-sm); }
   .fc li:last-child { border-bottom: 0; }
   .d { color: var(--text-2); font-weight: 600; }
   .hi { color: var(--text-1); font-weight: 700; font-variant-numeric: tabular-nums; }
   .lo { color: var(--text-3); font-variant-numeric: tabular-nums; }
-  .pc { color: var(--accent); font-size: 12px; font-variant-numeric: tabular-nums; }
-  .sm { color: var(--text-2); font-size: 12.5px; }
+  .pc { color: var(--accent); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+  .sm { color: var(--text-2); font-size: var(--fs-sm); }
 </style>

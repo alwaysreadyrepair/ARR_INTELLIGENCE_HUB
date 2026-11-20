@@ -45,7 +45,7 @@ const link = (params: Record<string, string | undefined>) => href('/quality', ur
     <Kpi label="Resolved" value={num(everything.filter((i) => i.status === 'resolved').length)} detail="All time" error={err} />
   </div>
 
-  <div class="grid split">
+  <div class="grid split top">
     <Panel title="Review queue" subtitle={hasData(queue) ? `${num(queue.data.length)} issues` : undefined} result={queue} source="Quality rules and import jobs" flush emptyText="Nothing in the queue for these filters.">
       <div slot="actions" class="fl">
         <form method="get" class="fl">
@@ -58,17 +58,21 @@ const link = (params: Record<string, string | undefined>) => href('/quality', ur
         </form>
       </div>
       <div class="table-wrap"><table>
-        <thead><tr><th>Severity</th><th>Issue</th><th>Record</th><th>Detected</th><th>Status</th></tr></thead>
+        <thead><tr><th>Severity</th><th>Issue</th><th>Status</th></tr></thead>
         <tbody>
           {hasData(queue) && queue.data.map((i) => (
             <tr>
               <td><Status value={i.severity} /></td>
-              <td><strong class="small">{label(i.kind)}</strong><br />{i.summary}</td>
-              <td class="small">
-                {i.propertyId ? <a href={href(`/properties/${i.propertyId}`, url)}>Property</a> : null}
-                {i.areaId && <><br /><a href={href('/coverage', url, { area: i.areaId, kind: i.areaId.startsWith('twp-') ? 'township' : undefined })} class="muted">{i.areaId.replace(/^(zip|twp)-/, '')}</a></>}
+              <td class="issue">
+                <strong>{label(i.kind)}</strong>
+                <span class="sum">{i.summary}</span>
+                <span class="meta">
+                  {i.propertyId && <a href={href(`/properties/${i.propertyId}`, url)}>Property</a>}
+                  {i.areaId && <a href={href('/coverage', url, { area: i.areaId, kind: i.areaId.startsWith('twp-') ? 'township' : undefined })}>{i.areaId.replace(/^(zip|twp)-/, '')}</a>}
+                  <span class="mono">{i.detectedBy}</span>
+                  <span title={dateTime(i.detectedAt)}>{relative(i.detectedAt, now)}</span>
+                </span>
               </td>
-              <td class="small" title={dateTime(i.detectedAt)}>{relative(i.detectedAt, now)}<br /><span class="mono muted">{i.detectedBy}</span></td>
               <td><Status value={i.status} /></td>
             </tr>
           ))}
@@ -85,8 +89,16 @@ const link = (params: Record<string, string | undefined>) => href('/quality', ur
 </Shell>
 
 <style>
+  /* The kind breakdown is short; let it sit at the top instead of stretching to the queue's height. */
+  .top { align-items: start; }
   .fl { display: flex; gap: 8px; }
-  .fl select { min-width: 130px; min-height: 30px; padding: 4px 8px; }
+  .issue { display: grid; gap: 2px; min-width: 260px; }
+  .issue strong { font-weight: 600; }
+  .sum { color: var(--text-2); }
+  .meta { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: var(--fs-xs); color: var(--text-3); margin-top: 2px; }
+  .meta .mono { color: var(--text-3); }
+  td:last-child, th:last-child { padding-right: 18px; text-align: right; }
+  .fl select { width: auto; min-width: 130px; min-height: 30px; padding: 4px 8px; }
   .note { padding: 10px 18px 2px; }
   table td:first-child, table th:first-child { padding-left: 18px; }
 </style>

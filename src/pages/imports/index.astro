@@ -81,10 +81,6 @@ const duration = (a: string | null, b: string | null) => (a && b ? `${Math.max(1
 </Shell>
 
 <style>
-  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
-  .chips a { padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--text-2); font-size: 12.5px; }
-  .chips a.on { background: var(--accent-dim); border-color: var(--accent); color: var(--text-1); }
-  .chips a:hover { text-decoration: none; background: var(--surface-2); }
   .jobs { list-style: none; margin: 0; padding: 0; }
   .jobs > li { border-bottom: 1px solid var(--border); }
   .jobs > li:last-child { border-bottom: 0; }
@@ -93,14 +89,14 @@ const duration = (a: string | null, b: string | null) => (a && b ? `${Math.max(1
   summary::before { content: '▸'; color: var(--text-3); width: 10px; }
   details[open] summary::before { content: '▾'; }
   .what { flex: 1; min-width: 200px; }
-  .tag { margin-left: 8px; font-size: 11px; padding: 1px 7px; border-radius: 4px; background: var(--surface-3); color: var(--text-2); }
+  .what :global(.tag) { margin-left: 8px; }
   .detail { display: grid; gap: 12px; padding: 0 0 16px 22px; }
-  .prog { height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.06); overflow: hidden; max-width: 520px; }
-  .prog span { display: block; height: 100%; background: linear-gradient(90deg, var(--series-1), var(--accent)); }
-  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; font-size: 13px; }
+  .prog { height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; max-width: 520px; }
+  .prog span { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; font-size: var(--fs-sm); }
   dt { color: var(--text-3); }
   dd { margin: 0; }
-  .err { display: flex; gap: 6px; align-items: flex-start; color: var(--critical); font-size: 13px; }
-  .h { font-size: 12px; color: var(--text-2); margin-bottom: 4px; }
+  .err { display: flex; gap: 6px; align-items: flex-start; color: var(--critical); font-size: var(--fs-sm); }
+  .h { font: 500 var(--fs-xs)/1.4 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin-bottom: 4px; }
   .acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 </style>
