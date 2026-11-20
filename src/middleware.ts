@@ -1,4 +1,5 @@
 import { defineMiddleware } from 'astro:middleware';
+import { env } from 'cloudflare:workers';
 import { getRepositories } from './repositories/index.ts';
 import { DEV_USER } from './lib/session.ts';
 import type { Simulate } from './lib/load.ts';
@@ -10,7 +11,8 @@ const SIMULATE = new Set(['error', 'empty', 'slow']);
 export const onRequest = defineMiddleware(async (context, next) => {
   const { locals, url } = context;
   locals.user = DEV_USER;
-  locals.repos = getRepositories(locals.runtime?.env);
+  // Bindings and vars come from `cloudflare:workers` (Astro 6+ removed `locals.runtime.env`; reading it now throws).
+  locals.repos = getRepositories(env);
   locals.now = new Date();
   // State simulation is a mock-mode review aid. It never applies to real data.
   const sim = url.searchParams.get('simulate');

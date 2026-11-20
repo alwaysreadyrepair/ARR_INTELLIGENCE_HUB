@@ -20,15 +20,20 @@ is one of the Hub's data consumers (see `/projects`).
 
 ## Local development
 
-Node ≥ 22:
+Node ≥ 22.23.4 (Astro 7's floor; `.nvmrc` pins Node 22, so `nvm use` picks it up):
 
 ```bash
 npm install
-npm run dev      # http://localhost:4322
+npm run dev      # http://localhost:4322 (Astro 7 runs it in the background: `npx astro dev stop` / `status` / `logs`)
 npm run test     # lib + mock-repository tests (node --test)
 npm run check    # astro check (types)
-npm run build    # production build (Cloudflare adapter)
+npm run build    # production build (Cloudflare adapter, deploys as a Worker)
+npm run preview  # serve the build in workerd
 ```
+
+`dev`, `check` and `build` first run `npm run types` (`wrangler types`), which generates the `Env` type from
+`wrangler.json` into `worker-configuration.d.ts` (git-ignored). Server code reads bindings and vars with
+`import { env } from 'cloudflare:workers'`; `Astro.locals.runtime` no longer exists.
 
 **Reviewing data states.** In mock mode, append `?simulate=error`, `?simulate=empty` or `?simulate=slow` to any URL to
 force that state on every panel. Stale data needs no simulating: the mock Lyons and Worth townships are deliberately
@@ -117,9 +122,17 @@ thresholds live in one place (`STALE_AFTER_DAYS` in `src/lib/freshness.ts`).
 fixed-order categorical colours checked with the dataviz palette validator against the panel surface, and status
 colours reserved for status. Tokens are in `src/styles/global.css`.
 
-**Visual system.** A dark command-center theme on the ARR palette: navy and near-black surfaces, ARR light blue
-`#03bce6` for data and focus, ARR red `#ee292f` only for primary actions and critical states, and yellow only for
-warnings. Inter for text, Helvetica Neue Black Extended (system fallback) for headings and KPI values.
+**Visual system.** A quiet dark operations-room theme on the ARR palette, polished after a study of calm, status-led
+product UIs:
+- **Depth from a flat surface ladder** (`--bg-0` sidebar → `--bg` page → `--surface-1` card → `--surface-2` raised →
+  `--surface-3` selected), never from panel shadows or gradients. A faint plotting grid sits on the page canvas only.
+- **Colour means something.** ARR light blue `#03bce6` for data, focus and the active-nav bar; ARR red, deepened to
+  `#d0222a` so white text passes 4.5:1, only for the one primary action and critical states; yellow only for warnings
+  and the classification strip. Status pills are a 15% tint of their colour with an icon and a label.
+- **The intelligence character comes from type.** Inter for text and numbers; IBM Plex Mono, uppercase, for panel
+  titles, labels, codes, IDs and timestamps. Five sizes (12/13/14/16/24, plus 28 for KPIs), three radii (6/10/pill).
+- **One targeting motif:** corner brackets (`Panel feature`) on a page's hero element, the territory map.
+- Page navigation is underline tabs; filters are chips. Empty states show ghost rows and one sentence.
 
 ## SEO & AEO
 

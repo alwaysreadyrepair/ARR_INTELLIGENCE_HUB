@@ -78,9 +78,10 @@ const CHECKS = a ? [
 <style>
   table td:first-child, table th:first-child { padding-left: 18px; }
   tr.cur { background: var(--accent-dim); }
-  .tag { display: inline-block; margin-left: 8px; padding: 0 6px; border-radius: 4px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; color: var(--accent); border: 1px solid currentColor; vertical-align: 1px; }
+  .tag { display: inline-block; margin-left: 8px; padding: 0 6px; border-radius: 4px; font: 500 11px/1.5 var(--mono); letter-spacing: 0.06em; color: var(--accent); background: var(--accent-dim); vertical-align: 1px; }
+  .tag.warn { background: var(--warn-wash); }
   .tag.warn { color: var(--warn); }
-  .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; font-size: 13px; }
+  .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; font-size: var(--fs-sm); }
   .checks li { display: flex; gap: 8px; align-items: center; }
   .checks .ok :global(svg) { color: var(--good); }
   .checks .no :global(svg) { color: var(--serious); }

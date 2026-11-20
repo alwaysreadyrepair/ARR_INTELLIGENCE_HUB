@@ -14,6 +14,7 @@ const { title, height = 220 } = Astro.props;
 
 <style>
   .sk { background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; display: grid; gap: 12px; }
+  .sk p { font-family: var(--mono); }
   .bars { display: flex; align-items: flex-end; gap: 6px; }
   .bars span { flex: 1; border-radius: 4px 4px 0 0; background: linear-gradient(90deg, var(--surface-2), var(--surface-3), var(--surface-2)); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
   @keyframes shimmer { to { background-position: -200% 0; } }
