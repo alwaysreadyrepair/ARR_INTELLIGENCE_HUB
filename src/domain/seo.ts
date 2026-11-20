@@ -102,6 +102,32 @@ export interface AiAnswer {
   citedDomains: string[];
   /** Up to ~400 characters around ARR's first mention, or the start of the answer. */
   excerpt: string;
+  /** How the answer was fetched: through DataForSEO, or straight from the engine's own API. Missing in older
+   *  snapshots, which were all DataForSEO. */
+  via?: 'dataforseo' | 'openai' | 'anthropic';
+  /** The model that answered, when known. */
+  model?: string | null;
+}
+
+/** One search point of the map-pack grid. Row 0 is the north edge, column 0 the west edge. `marketId` is the
+ *  nearest tracked city, for labels and roll-ups only. */
+export interface GridPoint {
+  row: number;
+  col: number;
+  lat: number;
+  lon: number;
+  marketId: string;
+}
+
+/** Google Maps searched for a keyword from one grid point on one date. Carries its own point, so a refresh with a
+ *  different grid doesn't break the history. */
+export interface GridResult extends GridPoint {
+  date: ISODate;
+  keyword: string;
+  /** ARR's position in the Maps list; null when it isn't in the first 20. */
+  position: number | null;
+  /** The business Google lists first from this point. */
+  leader: { title: string; domain: string | null } | null;
 }
 
 export interface KeywordMetric {
@@ -170,7 +196,8 @@ export interface SiteAudit {
 /** What a refresh cost, by area. Recorded from DataForSEO's own per-task cost field. */
 export interface SeoSpend {
   date: ISODate;
-  area: 'rankings' | 'local' | 'ai' | 'keywords' | 'competitors';
+  /** `openai` and `anthropic` are AI answers asked directly; `ai` is the ones asked through DataForSEO. */
+  area: 'rankings' | 'local' | 'grid' | 'ai' | 'openai' | 'anthropic' | 'keywords' | 'competitors';
   calls: number;
   usd: number;
 }
@@ -222,6 +249,8 @@ export interface SeoSnapshot {
   targets: SeoTargets;
   rankings: RankObservation[];
   local: LocalPackResult[];
+  /** Missing in snapshots written before the grid step existed. */
+  grid?: GridResult[];
   ai: AiAnswer[];
   keywords: KeywordMetric[];
   competitors: CompetitorProfile[];

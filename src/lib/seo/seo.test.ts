@@ -360,3 +360,137 @@ test('trackedKeywordTraffic matches every word in any order, skipping brand; gsc
   const wins = gscOpportunities([...queries, row('ac repair', 500, 2), row('boiler repair', 10, 8), row('hvac company', 300, 25)], ARR);
   assert.deepEqual(wins.map((w) => w.query), ['furnace repair orland park', 'furnace replacement', 'orland park furnace repair near me']);
 });
+
+// ─── grid.ts and the grid roll-ups ───
+
+test('gridPoints covers every market plus the margin, north-west first, each point naming its nearest city', async () => {
+  const { gridPoints, milesBetween } = await import('./grid.ts');
+  const markets = [
+    { id: 'a', city: 'A', locationName: '', lat: 41.6, lon: -87.9 },
+    { id: 'b', city: 'B', locationName: '', lat: 41.5, lon: -87.8 }
+  ];
+  const pts = gridPoints(markets, 2, 1);
+  const rows = Math.max(...pts.map((p) => p.row)) + 1, cols = Math.max(...pts.map((p) => p.col)) + 1;
+  assert.equal(pts.length, rows * cols);
+  assert.ok(pts[0]!.lat > pts.at(-1)!.lat && pts[0]!.lon < pts.at(-1)!.lon, 'row 0 north, col 0 west');
+  // Neighbours are spacing apart.
+  assert.ok(Math.abs(milesBetween(pts[0]!, pts[1]!) - 2) < 0.01);
+  assert.ok(Math.abs(milesBetween(pts[0]!, pts[cols]!) - 2) < 0.01);
+  // Every market sits within half a cell diagonal of some point.
+  for (const m of markets) assert.ok(Math.min(...pts.map((p) => milesBetween(p, m))) <= Math.SQRT2 + 0.01);
+  for (const p of pts) {
+    const nearest = markets.reduce((b, m) => (milesBetween(p, m) < milesBetween(p, b) ? m : b));
+    assert.equal(p.marketId, nearest.id);
+  }
+  assert.deepEqual(gridPoints([], 2, 1), []);
+});
+
+test('grid roll-ups: summary counts unlisted as 21, leaders flag ours, trend and cities use the right refresh', async () => {
+  const { gridSummary, gridLeaders, gridTrend, gridByCity } = await import('./stats.ts');
+  const pt = (row: number, marketId: string, date: string, position: number | null, leader: string) =>
+    ({ row, col: 0, lat: 41.6, lon: -87.8, marketId, date, keyword: 'hvac company', position, leader: { title: leader, domain: leader === 'ARR' ? 'alwaysreadyrepair.com' : `${leader.toLowerCase()}.example` } });
+  const rows = [
+    pt(0, 'a', '2026-11-09', 5, 'Acme'),
+    pt(0, 'a', '2026-11-16', 1, 'ARR'), pt(1, 'a', '2026-11-16', 3, 'Acme'), pt(2, 'b', '2026-11-16', null, 'Acme'), pt(3, 'b', '2026-11-16', 9, 'Bolt')
+  ];
+  assert.deepEqual(gridSummary(rows), { points: 4, top3: 2, listed: 3, avgPosition: (1 + 3 + 21 + 9) / 4 });
+  assert.deepEqual(gridLeaders(rows, 'alwaysreadyrepair.com').map((l) => [l.name, l.points, l.own]), [['Acme', 2, false], ['ARR', 1, true], ['Bolt', 1, false]]);
+  assert.deepEqual(gridTrend(rows), [{ date: '2026-11-09', top3: 0, points: 1 }, { date: '2026-11-16', top3: 2, points: 4 }]);
+  assert.deepEqual(gridByCity(rows), [{ marketId: 'a', top3: 2, points: 2 }, { marketId: 'b', top3: 0, points: 2 }]);
+});
+
+// ─── openai.ts ───
+
+test('openAiRequest asks with web search placed in our area and no system prompt', async () => {
+  const { openAiRequest } = await import('./openai.ts');
+  const body = openAiRequest('gpt-5.5', 'Who is the best HVAC company in Orland Park, IL?', { city: 'Orland Park', region: 'Illinois', country: 'US', timezone: 'America/Chicago' }, 'low');
+  assert.equal(body.input, 'Who is the best HVAC company in Orland Park, IL?');
+  assert.deepEqual(body.tools, [{ type: 'web_search', user_location: { type: 'approximate', city: 'Orland Park', region: 'Illinois', country: 'US', timezone: 'America/Chicago' } }]);
+  assert.equal(body.reasoning.effort, 'low');
+  assert.ok(!('instructions' in body));
+});
+
+test('parseOpenAiResponse reads the message text, url citations, tokens and searches', async () => {
+  const { parseOpenAiResponse, costOf } = await import('./openai.ts');
+  const p = parseOpenAiResponse({
+    status: 'completed',
+    output: [
+      { type: 'reasoning', summary: [] },
+      { type: 'web_search_call', status: 'completed' },
+      { type: 'web_search_call', status: 'completed' },
+      { type: 'message', content: [{ type: 'output_text', text: '**ARR Heating + Cooling** shows prices online ([alwaysreadyrepair.com](https://alwaysreadyrepair.com/pricing)).', annotations: [
+        { type: 'url_citation', url: 'https://alwaysreadyrepair.com/pricing?utm_source=openai', title: 'Pricing' },
+        { type: 'url_citation', url: 'https://www.yelp.com/biz/x', title: 'Yelp' }
+      ] }] }
+    ],
+    usage: { input_tokens: 10_000, output_tokens: 1_000 }
+  });
+  assert.ok(p.answer.text.startsWith('ARR Heating + Cooling shows prices online'));
+  assert.deepEqual(p.answer.citations.map((c) => c.domain), ['alwaysreadyrepair.com', 'yelp.com']);
+  assert.deepEqual([p.inputTokens, p.outputTokens, p.searches, p.complete], [10_000, 1_000, 2, true]);
+  assert.equal(costOf({ inputPerMTok: 1.25, outputPerMTok: 10, perSearch: 0.01 }, 10_000, 1_000, 2), 0.0425);
+  assert.equal(parseOpenAiResponse({ status: 'incomplete', output: [] }).complete, false);
+});
+
+test('askOpenAi records the served model and cost, and surfaces OpenAI errors without retrying', async () => {
+  const { askOpenAi } = await import('./openai.ts');
+  const where = { city: 'Orland Park', region: 'Illinois', country: 'US', timezone: 'America/Chicago' };
+  const price = { inputPerMTok: 1, outputPerMTok: 1, perSearch: 0 };
+  let calls = 0;
+  const ok = (async () => (calls++, new Response(JSON.stringify({ status: 'completed', model: 'gpt-5.5-2026-10-01', output: [], usage: { input_tokens: 500_000, output_tokens: 500_000 } }), { status: 200 }))) as unknown as typeof fetch;
+  const a = await askOpenAi('k', 'gpt-5.5', 'q', where, 'low', price, ok);
+  assert.equal(a.model, 'gpt-5.5-2026-10-01');
+  assert.equal(a.usd, 1);
+  const bad = (async () => (calls++, new Response(JSON.stringify({ error: { message: 'Incorrect API key provided' } }), { status: 401 }))) as unknown as typeof fetch;
+  await assert.rejects(askOpenAi('k', 'gpt-5.5', 'q', where, 'low', price, bad), /OpenAI 401: Incorrect API key/);
+  assert.equal(calls, 2);
+});
+
+// ─── claude.ts ───
+
+test('parseClaudeContent joins the text blocks and keeps only web-search citations', async () => {
+  const { parseClaudeContent } = await import('./claude.ts');
+  const content = [
+    { type: 'server_tool_use', id: 's1', name: 'web_search', input: { query: 'hvac orland park' } },
+    { type: 'web_search_tool_result', tool_use_id: 's1', content: [{ type: 'web_search_result', url: 'https://www.angi.com/x', title: 'Angi' }] },
+    { type: 'text', text: 'Homeowners often recommend ', citations: null },
+    { type: 'text', text: '**ARR Heating + Cooling**, which lists prices online.', citations: [
+      { type: 'web_search_result_location', url: 'https://alwaysreadyrepair.com/pricing', title: 'Pricing', cited_text: '…', encrypted_index: 'x' }
+    ] }
+  ] as unknown as Parameters<typeof parseClaudeContent>[0];
+  const a = parseClaudeContent(content);
+  assert.equal(a.text, 'Homeowners often recommend ARR Heating + Cooling, which lists prices online.');
+  assert.deepEqual(a.citations.map((c) => c.domain), ['alwaysreadyrepair.com']);
+});
+
+test('hasAnthropicCredentials needs a key, a token or a named profile', async () => {
+  const { hasAnthropicCredentials } = await import('./claude.ts');
+  assert.equal(hasAnthropicCredentials({}), false);
+  assert.equal(hasAnthropicCredentials({ ANTHROPIC_API_KEY: '  ' }), false);
+  assert.equal(hasAnthropicCredentials({ ANTHROPIC_API_KEY: 'sk-ant-x' }), true);
+  assert.equal(hasAnthropicCredentials({ ANTHROPIC_PROFILE: 'arr' }), true);
+});
+
+test('askClaude resumes a paused turn, sums usage and searches, and returns empty on refusal', async () => {
+  const { askClaude } = await import('./claude.ts');
+  const where = { city: 'Orland Park', region: 'Illinois', country: 'US', timezone: 'America/Chicago' };
+  const price = { inputPerMTok: 4, outputPerMTok: 20, perSearch: 0.01 };
+  const usage = (i: number, o: number, s: number) => ({ input_tokens: i, output_tokens: o, cache_creation_input_tokens: null, cache_read_input_tokens: null, server_tool_use: { web_search_requests: s, web_fetch_requests: 0 } });
+  const sent: { messages: unknown[]; tools: { user_location: unknown }[]; fallbacks: unknown }[] = [];
+  const replies = [
+    { model: 'claude-opus-5-5', stop_reason: 'pause_turn', content: [{ type: 'text', text: 'Looking. ', citations: null }], usage: usage(5_000, 100, 2) },
+    { model: 'claude-opus-5-5', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Try ARR Heating + Cooling.', citations: null }], usage: usage(5_000, 400, 1) }
+  ];
+  const fake = { beta: { messages: { create: async (req: (typeof sent)[number]) => (sent.push(structuredClone(req)), replies.shift()) } } } as unknown as Parameters<typeof askClaude>[0];
+  const a = await askClaude(fake, 'claude-opus-5-5', 'Who is the best HVAC company in Orland Park, IL?', where, 'low', price);
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1]!.messages.length, 2, 'paused assistant turn sent back, no extra user message');
+  assert.equal(sent[0]!.fallbacks, 'default');
+  assert.deepEqual(sent[0]!.tools[0]!.user_location, { type: 'approximate', ...where });
+  assert.equal(a.text, 'Looking. Try ARR Heating + Cooling.');
+  assert.deepEqual([a.searches, a.complete, a.usd], [3, true, (10_000 * 4 + 500 * 20) / 1e6 + 0.03]);
+
+  const refusing = { beta: { messages: { create: async () => ({ model: 'claude-opus-5-5', stop_reason: 'refusal', content: [{ type: 'text', text: 'partial', citations: null }], usage: usage(100, 10, 0) }) } } } as unknown as Parameters<typeof askClaude>[0];
+  const r = await askClaude(refusing, 'claude-opus-5-5', 'q', where, 'low', price);
+  assert.deepEqual([r.text, r.complete], ['', false]);
+});

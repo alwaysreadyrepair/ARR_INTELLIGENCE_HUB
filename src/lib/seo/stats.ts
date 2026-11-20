@@ -1,7 +1,7 @@
 /* Roll-ups for the SEO & AEO pages. Pure functions over repository rows, so they're unit-tested and identical in
  * mock and snapshot mode. Every figure is a count with its denominator; there is no blended "SEO score". */
 
-import type { AiAnswer, AiEngine, AuditIssue, AuditSeverity, LocalPackResult, RankObservation, SeoBrand, SiteAudit, GscMetrics, GscQueryRow, TrackedKeyword } from '../../domain/seo.ts';
+import type { AiAnswer, AiEngine, AuditIssue, AuditSeverity, LocalPackResult, RankObservation, SeoBrand, SiteAudit, GridResult, GscMetrics, GscQueryRow, TrackedKeyword } from '../../domain/seo.ts';
 
 export const ENGINE_LABEL: Record<AiEngine, string> = {
   chatgpt: 'ChatGPT',
@@ -225,4 +225,56 @@ export function gscOpportunities(queries: GscQueryRow[], brand: SeoBrand, limit 
     .filter((q) => q.position >= 4 && q.position <= 20 && q.impressions >= 20 && !isBrandQuery(q.query, brand))
     .sort((a, b) => b.impressions - a.impressions)
     .slice(0, limit);
+}
+
+// ── Map-pack grid ──
+
+/** Where an unlisted point counts in the average: just past the 20 results Maps returns. */
+export const GRID_UNLISTED = 21;
+
+/** Latest refresh of one keyword's grid: points in the top 3, points listed at all, and the average position with
+ *  unlisted points counted as 21 (so a point we vanish from still pulls the average down). */
+export function gridSummary(rows: GridResult[]): { points: number; top3: number; listed: number; avgPosition: number | null } {
+  const cur = latest(rows).rows;
+  return {
+    points: cur.length,
+    top3: cur.filter((r) => r.position != null && r.position <= 3).length,
+    listed: cur.filter((r) => r.position != null).length,
+    avgPosition: cur.length ? cur.reduce((s, r) => s + (r.position ?? GRID_UNLISTED), 0) / cur.length : null
+  };
+}
+
+/** Points in the top 3, per refresh. */
+export function gridTrend(rows: GridResult[]): { date: string; top3: number; points: number }[] {
+  return dates(rows).map((date) => {
+    const day = rows.filter((r) => r.date === date);
+    return { date, top3: day.filter((r) => r.position != null && r.position <= 3).length, points: day.length };
+  });
+}
+
+/** Who Google lists first, by number of grid points, latest refresh. Ours is flagged. */
+export function gridLeaders(rows: GridResult[], ownDomain: string): { name: string; domain: string | null; own: boolean; points: number }[] {
+  const counts = new Map<string, { name: string; domain: string | null; points: number }>();
+  for (const r of latest(rows).rows) {
+    if (!r.leader) continue;
+    const key = r.leader.domain ?? r.leader.title;
+    const c = counts.get(key) ?? { name: r.leader.title, domain: r.leader.domain, points: 0 };
+    c.points++;
+    counts.set(key, c);
+  }
+  return [...counts.values()]
+    .map((c) => ({ ...c, own: c.domain != null && (c.domain === ownDomain || c.domain.endsWith(`.${ownDomain}`)) }))
+    .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
+}
+
+/** Per nearest city, latest refresh: points in the top 3 out of the points nearest that city. */
+export function gridByCity(rows: GridResult[]): { marketId: string; top3: number; points: number }[] {
+  const by = new Map<string, { top3: number; points: number }>();
+  for (const r of latest(rows).rows) {
+    const c = by.get(r.marketId) ?? { top3: 0, points: 0 };
+    c.points++;
+    if (r.position != null && r.position <= 3) c.top3++;
+    by.set(r.marketId, c);
+  }
+  return [...by].map(([marketId, c]) => ({ marketId, ...c }));
 }

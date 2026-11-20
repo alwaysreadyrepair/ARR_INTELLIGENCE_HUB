@@ -26,6 +26,10 @@ const [targets, ai] = await Promise.all([
 ]);
 const t = hasData(targets) ? targets.data : null;
 const all = hasData(ai) ? ai.data : [];
+
+// Answers asked straight through an engine's own API name it in the panel footers.
+const directVias = new Set((hasData(ai) ? ai.data : []).map((a) => a.via).filter((v) => v === 'openai' || v === 'anthropic'));
+const directSrc = [...directVias].map((v) => (v === 'openai' ? ' · OpenAI API' : ' · Anthropic API')).join('');
 const engines = t?.engines ?? [];
 const promptId = t?.prompts.some((p) => p.id === url.searchParams.get('prompt')) ? url.searchParams.get('prompt')! : undefined;
 const prompt = t?.prompts.find((p) => p.id === promptId);
@@ -55,7 +59,7 @@ const VERDICT: Record<string, string> = { none: 'Not checked', noanswer: 'No ans
     })}
   </div>
 
-  <Panel title="Prompt by engine" subtitle={`Latest refresh${latestDate ? `, week of ${shortDate(latestDate)}` : ''}. Pick a prompt to read the answers.`} result={ai} source="DataForSEO AI Optimization (LLM responses) · Google SERP (AI Overview)" flush emptyText="No AI answers collected yet.">
+  <Panel title="Prompt by engine" subtitle={`Latest refresh${latestDate ? `, week of ${shortDate(latestDate)}` : ''}. Pick a prompt to read the answers.`} result={ai} source={`DataForSEO AI Optimization (LLM responses) · Google SERP (AI Overview)${directSrc}`} flush emptyText="No AI answers collected yet.">
     <div class="table-wrap"><table class="matrix">
       <thead><tr><th>Prompt</th>{engines.map((e) => <th>{ENGINE_LABEL[e]}</th>)}</tr></thead>
       <tbody>
@@ -70,7 +74,7 @@ const VERDICT: Record<string, string> = { none: 'Not checked', noanswer: 'No ans
   </Panel>
 
   {prompt && (
-    <Panel title="The answers" subtitle={`"${prompt.text}"`} result={ai} source="DataForSEO AI Optimization · Google SERP">
+    <Panel title="The answers" subtitle={`"${prompt.text}"`} result={ai} source={`DataForSEO AI Optimization · Google SERP${directSrc}`}>
       <a slot="actions" class="small" href={href('/seo/ai', url, { prompt: undefined, engine })}>Close</a>
       <div class="answers">
         {engines.map((e) => {
@@ -78,7 +82,7 @@ const VERDICT: Record<string, string> = { none: 'Not checked', noanswer: 'No ans
           const h = history(prompt.id, e);
           return (
             <article class="answer">
-              <header><strong style={`color:${ENGINE_COLOR[e]}`}>{ENGINE_LABEL[e]}</strong> <span class:list={['v', verdict(a)]}>{VERDICT[verdict(a)]}</span></header>
+              <header><strong style={`color:${ENGINE_COLOR[e]}`}>{ENGINE_LABEL[e]}</strong> <span class:list={['v', verdict(a)]}>{VERDICT[verdict(a)]}</span>{a?.via && a.via !== 'dataforseo' && <span class="via muted small">{a.via === 'openai' ? 'OpenAI API' : 'Anthropic API'}{a.model ? ` · ${a.model}` : ''}</span>}</header>
               {a?.answered ? <blockquote>{a.excerpt || 'No excerpt captured.'}</blockquote> : <p class="muted small">{e === 'google_ai_overview' ? 'Google showed no AI Overview for this search.' : 'No answer collected.'}</p>}
               {a && a.competitorsMentioned.length > 0 && <p class="small">Also named: {a.competitorsMentioned.map(competitorName).join(', ')}</p>}
               {a && a.citedDomains.length > 0 && <p class="small muted">Cites: {a.citedDomains.join(', ')}</p>}
@@ -94,19 +98,19 @@ const VERDICT: Record<string, string> = { none: 'Not checked', noanswer: 'No ans
   )}
 
   <div class="grid split">
-    <Panel title="Share of answers naming ARR" subtitle="Per engine and weekly refresh. Answers that never came back are left out of each week's share." result={ai} source="DataForSEO AI Optimization · Google SERP" emptyText="No AI answers collected yet.">
+    <Panel title="Share of answers naming ARR" subtitle="Per engine and weekly refresh. Answers that never came back are left out of each week's share." result={ai} source={`DataForSEO AI Optimization · Google SERP${directSrc}`} emptyText="No AI answers collected yet.">
       {trend.length > 0 && (
         <Lines title="Share of AI answers naming ARR, by engine" unit="%" height={220} labelEvery={Math.ceil(trend.length / 6)}
           buckets={trend.map((d) => ({ label: shortDate(d.date), tip: `Week of ${shortDate(d.date)}` }))}
           series={(engine ? [engine] : engines).map((e) => ({ name: ENGINE_SHORT[e], color: ENGINE_COLOR[e], values: trend.map((d) => pct100(d.byEngine[e]!.mentioned, d.byEngine[e]!.answered)) }))} />
       )}
     </Panel>
-    <Panel title="Who AI assistants name" subtitle={`${engine ? ENGINE_LABEL[engine] : 'All engines'}, latest refresh. One answer can name several companies.`} result={ai} source="DataForSEO AI Optimization" emptyText="No AI answers collected yet.">
+    <Panel title="Who AI assistants name" subtitle={`${engine ? ENGINE_LABEL[engine] : 'All engines'}, latest refresh. One answer can name several companies.`} result={ai} source={`DataForSEO AI Optimization${directSrc}`} emptyText="No AI answers collected yet.">
       {sov.length > 0 && <BarList rows={sov.map((s) => ({ label: s.own ? "ARR (us)" : s.name, value: s.answers }))} shareOf={answered.length || undefined} />}
     </Panel>
   </div>
 
-  <Panel title="Sites the answers cite" subtitle="Where AI engines get their information about local HVAC companies. A listing or review profile on a much-cited site is a way into the answer." result={ai} source="DataForSEO AI Optimization · Google SERP" emptyText="No citations in the latest answers.">
+  <Panel title="Sites the answers cite" subtitle="Where AI engines get their information about local HVAC companies. A listing or review profile on a much-cited site is a way into the answer." result={ai} source={`DataForSEO AI Optimization · Google SERP${directSrc}`} emptyText="No citations in the latest answers.">
     {cited.length > 0 && <BarList rows={cited.map((c) => ({ label: c.domain === t?.domain ? `${c.domain} (us)` : c.domain, value: c.count }))} shareOf={answered.length || undefined} color="var(--series-3)" />}
     <p class="muted small note">Share of {num(answered.length)} answered prompts that cite each site at least once.</p>
   </Panel>
@@ -124,7 +128,8 @@ const VERDICT: Record<string, string> = { none: 'Not checked', noanswer: 'No ans
   .v.noanswer, .v.none { color: var(--text-3); font-weight: 500; font-style: italic; }
   .answers { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
   .answer { display: grid; gap: 8px; align-content: start; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
-  .answer header { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .answer header { display: flex; justify-content: space-between; gap: 2px 8px; align-items: baseline; flex-wrap: wrap; }
+  .answer .via { flex-basis: 100%; }
   blockquote { margin: 0; padding-left: 10px; border-left: 2px solid var(--border-strong); color: var(--text-2); font-size: 13px; }
   .hist { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
   .hist i { width: 10px; height: 10px; border-radius: 2px; background: rgba(255, 255, 255, 0.08); }

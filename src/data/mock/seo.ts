@@ -5,11 +5,12 @@
  * with .example domains, so no real company is ever shown with made-up numbers. */
 
 import type {
-  AiAnswer, AiEngine, AuditIssue, AuditPage, CompetitorProfile, GscMetrics, GscPageRow, GscQueryRow, KeywordMetric, LocalPackResult,
+  AiAnswer, AiEngine, AuditIssue, AuditPage, CompetitorProfile, GridResult, GscMetrics, GscPageRow, GscQueryRow, KeywordMetric, LocalPackResult,
   RankObservation, SearchConsoleData, SeoBrand, SeoSnapshot, SeoSpend, SiteAudit
 } from '../../domain/seo.ts';
 import { rng } from '../../lib/rng.ts';
-import { BRAND, ENGINES, GSC_PROPERTY, GSC_WINDOW_DAYS, KEYWORDS, LOCAL_KEYWORDS, MARKETS, PROMPTS, RANK_DEPTH, SITE_DOMAIN } from '../seo/targets.ts';
+import { gridPoints, milesBetween } from '../../lib/seo/grid.ts';
+import { BRAND, ENGINES, GRID, GSC_PROPERTY, GSC_WINDOW_DAYS, KEYWORDS, LOCAL_KEYWORDS, MARKETS, PROMPTS, RANK_DEPTH, SITE_DOMAIN } from '../seo/targets.ts';
 
 const DAY = 86_400_000;
 const WEEKS = 12;
@@ -85,6 +86,9 @@ export function buildMockSeoSnapshot(now: Date): SeoSnapshot {
     }
   }
 
+  // ── Map-pack grid (last 4 weeks: the newest step). Seeded on its own so the rest of the mock doesn't shift. ──
+  const grid = buildMockGrid(dates.slice(-4));
+
   // ── AI answers: every prompt × engine every week. ARR shows up more often over time. ──
   const BASE: Record<AiEngine, number> = { perplexity: 0.42, chatgpt: 0.26, gemini: 0.2, claude: 0.2, google_ai_overview: 0.16 };
   const ai: AiAnswer[] = [];
@@ -100,6 +104,8 @@ export function buildMockSeoSnapshot(now: Date): SeoSnapshot {
         const names = [...(mentioned ? [BRAND.name] : []), ...competitorsMentioned.map((d) => COMPETITORS.find((c) => c.domain === d)!.name)];
         ai.push({
           date, promptId: p.id, engine, answered, mentioned, cited, mentionRank, competitorsMentioned, citedDomains,
+          // ChatGPT shows as asked directly through OpenAI, the way a refresh with OPENAI_API_KEY records it.
+          via: engine === 'chatgpt' ? 'openai' : 'dataforseo', model: engine === 'chatgpt' ? 'gpt-5.5' : null,
           excerpt: !answered ? '' : names.length
             ? `For this, homeowners in the area often look at ${names.join(', ')}. Compare upfront pricing, warranty terms and how quickly each can schedule a visit.`
             : 'Look for a licensed, insured contractor with recent reviews, clear pricing and a written estimate before any work starts.'
@@ -172,6 +178,7 @@ export function buildMockSeoSnapshot(now: Date): SeoSnapshot {
   const spend: SeoSpend[] = dates.flatMap((date, i) => [
     { date, area: 'rankings' as const, calls: KEYWORDS.length * MARKETS.length, usd: Math.round(KEYWORDS.length * MARKETS.length * 0.002 * 100) / 100 },
     { date, area: 'ai' as const, calls: PROMPTS.length * ENGINES.length, usd: Math.round(PROMPTS.length * ENGINES.length * 0.012 * 100) / 100 },
+    ...(i >= WEEKS - 4 ? [{ date, area: 'grid' as const, calls: GRID.keywords.length * 54, usd: Math.round(GRID.keywords.length * 54 * 0.004 * 100) / 100 }] : []),
     ...(i >= WEEKS - 6 ? [{ date, area: 'local' as const, calls: LOCAL_KEYWORDS.length * MARKETS.length, usd: Math.round(LOCAL_KEYWORDS.length * MARKETS.length * 0.002 * 100) / 100 }] : []),
     ...(i % 4 === 3 ? [{ date, area: 'keywords' as const, calls: 1, usd: 0.08 }, { date, area: 'competitors' as const, calls: 14, usd: 0.42 }] : [])
   ]);
@@ -180,7 +187,7 @@ export function buildMockSeoSnapshot(now: Date): SeoSnapshot {
     version: 1,
     takenAt: new Date(lastMonday + 7 * 3_600_000).toISOString(),
     targets: { domain: SITE_DOMAIN, brand: BRAND, markets: MARKETS, keywords: KEYWORDS, prompts: PROMPTS, engines: ENGINES, competitors: COMPETITORS, rankDepth: RANK_DEPTH },
-    rankings, local, ai, keywords, competitors, audit, spend,
+    rankings, local, grid, ai, keywords, competitors, audit, spend,
     searchConsole: buildMockSearchConsole(now, new Date(lastMonday + 7 * 3_600_000).toISOString())
   };
 }
@@ -288,4 +295,37 @@ export function buildMockSearchConsole(now: Date, fetchedAt: string): SearchCons
     .sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions);
 
   return { property: GSC_PROPERTY, fetchedAt, period, previous, totals, daily, queries, pages };
+}
+
+// ── Map-pack grid ──
+
+/** Grid results around a shop in Orland Park: strong nearby, fading with distance, weakest to the south-east, where
+ *  an invented competitor is based. "furnace repair" fades faster than "hvac company". A little better each week. */
+function buildMockGrid(dates: string[]): GridResult[] {
+  const r = rng(5151);
+  const shop = MARKETS.find((m) => m.id === 'orland-park') ?? MARKETS[0]!;
+  const points = gridPoints(MARKETS, GRID.spacingMiles, GRID.marginMiles);
+  const byName = (name: string) => COMPETITORS.find((c) => c.name === name)!;
+  // Who leads where ARR doesn't: by compass direction from the shop.
+  const rival = (lat: number, lon: number) =>
+    lat < shop.lat - 0.06 ? byName(lon > shop.lon ? 'Will County HVAC' : 'Midwest Climate Pros')
+      : lon > shop.lon + 0.04 ? byName(lat > shop.lat ? 'Lakeview Mechanical' : 'Southwest Suburban Heating')
+        : byName(r.next() < 0.5 ? 'Orland Air Co.' : 'Prairie State Comfort');
+  const out: GridResult[] = [];
+  for (const keyword of GRID.keywords) {
+    const falloff = keyword === 'furnace repair' ? 0.42 : 0.17;
+    const noise = new Map(points.map((p) => [`${p.row},${p.col}`, r.normal(0, 1.1)]));
+    for (const [i, date] of dates.entries()) {
+      for (const p of points) {
+        const dist = milesBetween(p, shop);
+        const southEast = p.lat < shop.lat - 0.05 && p.lon > shop.lon ? 3 : 0;
+        const raw = 1 + falloff * dist ** 1.6 + southEast + noise.get(`${p.row},${p.col}`)! + r.normal(0, 0.5) - i * 0.25;
+        const pos = Math.max(1, Math.round(raw));
+        const position = pos > 20 ? null : pos;
+        const lead = position === 1 ? { name: BRAND.name, domain: SITE_DOMAIN } : rival(p.lat, p.lon);
+        out.push({ ...p, date, keyword, position, leader: { title: lead.name, domain: lead.domain } });
+      }
+    }
+  }
+  return out;
 }

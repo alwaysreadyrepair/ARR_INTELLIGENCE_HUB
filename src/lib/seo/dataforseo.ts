@@ -120,8 +120,8 @@ export const organicTask = (keyword: string, locationName: string, depth: number
   ...(aiOverview ? { load_async_ai_overview: true } : {})
 });
 
-export const mapsTask = (keyword: string, lat: number, lon: number) => ({
-  keyword: keywordField(keyword), location_coordinate: `${lat},${lon},13z`, language_code: 'en', depth: 20
+export const mapsTask = (keyword: string, lat: number, lon: number, zoom = 13) => ({
+  keyword: keywordField(keyword), location_coordinate: `${lat},${lon},${zoom}z`, language_code: 'en', depth: 20
 });
 
 /** DataForSEO's engine slugs for the LLM Responses API. */

@@ -35,6 +35,9 @@ export function seoRepositoryFrom(kind: SeoRepository['kind'], get: () => Promis
     async local(f = {}) {
       return byDate((await need()).local.filter((r) => !f.marketId || r.marketId === f.marketId));
     },
+    async grid(f = {}) {
+      return byDate(((await need()).grid ?? []).filter((r) => !f.keyword || r.keyword === f.keyword));
+    },
     async aiAnswers(f = {}) {
       return byDate((await need()).ai.filter((a) => (!f.engine || a.engine === f.engine) && (!f.promptId || a.promptId === f.promptId)));
     },

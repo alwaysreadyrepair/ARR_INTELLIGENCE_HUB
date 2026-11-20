@@ -54,6 +54,12 @@ export const KEYWORDS: TrackedKeyword[] = [
 /** Also checked on Google Maps in every market. The map pack is where most local service calls start. */
 export const LOCAL_KEYWORDS = ['hvac company', 'furnace repair', 'ac repair', 'furnace replacement'];
 
+/** The map-pack grid: Google Maps searched from evenly spaced points over the whole service area (the tracked
+ *  cities' bounding box plus `marginMiles`), not just each city centre. Calls per refresh = points × keywords; with
+ *  the cities above, 2-mile spacing gives 54 points. `zoom` is the map zoom DataForSEO searches at (14 ≈ a few
+ *  miles across, close to what a phone shows). */
+export const GRID = { keywords: ['hvac company', 'furnace repair'], spacingMiles: 2, marginMiles: 1, zoom: 14 };
+
 /** Unbranded questions. A prompt that names ARR would only measure whether the engine can echo it back. */
 export const PROMPTS: AiPrompt[] = [
   { id: 'best-hvac-orland', text: 'Who is the best HVAC company in Orland Park, IL?', service: 'general' },
@@ -66,7 +72,21 @@ export const PROMPTS: AiPrompt[] = [
   { id: 'maintenance-plan-mokena', text: 'Which HVAC companies near Mokena, IL offer a good maintenance plan?', service: 'maintenance' }
 ];
 
-export const ENGINES: AiEngine[] = ['chatgpt', 'perplexity', 'gemini', 'google_ai_overview'];
+export const ENGINES: AiEngine[] = ['chatgpt', 'claude', 'perplexity', 'gemini', 'google_ai_overview'];
+
+/** Engines the refresh asks straight through their own API when credentials are in the environment
+ *  (OPENAI_API_KEY for ChatGPT, ANTHROPIC_API_KEY for Claude), instead of through DataForSEO. Direct calls run the
+ *  web search from AI_SEARCH_LOCATION, so the answer reflects what a homeowner here would get. OPENAI_MODEL and
+ *  ANTHROPIC_MODEL override the models; effort is kept low because these are quick consumer questions.
+ *  Prices are list prices used to record what each answer cost: check them against the provider's pricing page when
+ *  you change the model (the gpt-5.5 figures are an assumption carried over from gpt-5). */
+export const AI_DIRECT = {
+  chatgpt: { model: 'gpt-5.5', effort: 'low', price: { inputPerMTok: 1.25, outputPerMTok: 10, perSearch: 0.01 } },
+  claude: { model: 'claude-opus-5-5', effort: 'low', price: { inputPerMTok: 4, outputPerMTok: 20, perSearch: 0.01 } }
+} as const;
+
+/** Where direct AI answers' web searches run from: the shop's home market. */
+export const AI_SEARCH_LOCATION = { city: 'Orland Park', region: 'Illinois', country: 'US', timezone: 'America/Chicago' };
 
 /** Domains that rank for everything and aren't contractors. Excluded when discovering competitors. */
 export const NOT_COMPETITORS = [

@@ -7,8 +7,13 @@
  *   npm run seo:refresh -- --sandbox            DataForSEO's free sandbox: real request shapes, fake data
  *   npm run seo:load                             put the snapshot in the Hub's local SEO KV
  *
- * Steps: audit, search-console, rankings, local, ai, keywords, competitors. Credentials: DATAFORSEO_LOGIN +
+ * Steps: audit, search-console, rankings, local, grid, ai, keywords, competitors. Credentials: DATAFORSEO_LOGIN +
  * DATAFORSEO_PASSWORD (or DATAFORSEO_API_KEY = base64 "login:password") in the environment or .env.
+ *
+ * AI answers: OPENAI_API_KEY makes the ai step ask ChatGPT through OpenAI's own API, and ANTHROPIC_API_KEY (or
+ * ANTHROPIC_AUTH_TOKEN, or ANTHROPIC_PROFILE naming an `ant auth login` profile) asks Claude through Anthropic's, both
+ * with web search from AI_SEARCH_LOCATION, instead of DataForSEO. OPENAI_MODEL / ANTHROPIC_MODEL override the
+ * models. Other engines, and these two without credentials, go through DataForSEO.
  *
  * Search Console: GSC_SERVICE_ACCOUNT is a service-account JSON key, or the path to the key file. Add the account's
  * client_email as a user on the property in Search Console first. GSC_PROPERTY overrides the property in
@@ -20,17 +25,20 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AiAnswer, AiEngine, AuditIssue, AuditPage, CompetitorProfile, KeywordMetric, LocalPackResult, RankObservation, SearchConsoleData, SeoBrand, SeoSnapshot, SeoSpend, SiteAudit } from '../src/domain/seo.ts';
-import { BRAND, COMPETITOR_LIMIT, ENGINES, GSC_PROPERTY, GSC_WINDOW_DAYS, KEYWORDS, LOCAL_KEYWORDS, MARKETS, NOT_COMPETITORS, PROMPTS, RANK_DEPTH, SITE_DOMAIN } from '../src/data/seo/targets.ts';
+import type { AiAnswer, AiEngine, AuditIssue, AuditPage, CompetitorProfile, GridResult, KeywordMetric, LocalPackResult, RankObservation, SearchConsoleData, SeoBrand, SeoSnapshot, SeoSpend, SiteAudit } from '../src/domain/seo.ts';
+import { AI_DIRECT, AI_SEARCH_LOCATION, BRAND, COMPETITOR_LIMIT, ENGINES, GRID, GSC_PROPERTY, GSC_WINDOW_DAYS, KEYWORDS, LOCAL_KEYWORDS, MARKETS, NOT_COMPETITORS, PROMPTS, RANK_DEPTH, SITE_DOMAIN } from '../src/data/seo/targets.ts';
 import {
   API_BASE, credentialsFromEnv, createClient, ESTIMATE, LLM_SLUG, llmTask, mapsTask, MODEL_FALLBACK, organicTask, parseBacklinks, parseDomainRank,
   parseLlm, parseMaps, parseModels, parseOrganic, parseSearchVolume, PATH, pickModel, SANDBOX_BASE, type Client
 } from '../src/lib/seo/dataforseo.ts';
 import { matchAnswer, ownedDomain } from '../src/lib/seo/match.ts';
 import { auditPage, parseRobots, parseSitemap } from '../src/lib/seo/audit.ts';
+import { gridPoints } from '../src/lib/seo/grid.ts';
+import { askOpenAi, costOf } from '../src/lib/seo/openai.ts';
+import { askClaude, claudeClient, hasAnthropicCredentials } from '../src/lib/seo/claude.ts';
 import { accessToken, historyStart, parseServiceAccount, searchAnalytics, totalsOf, windows, withPrevious, type ServiceAccount } from '../src/lib/seo/gsc.ts';
 
-const STEPS = ['audit', 'search-console', 'rankings', 'local', 'ai', 'keywords', 'competitors'] as const;
+const STEPS = ['audit', 'search-console', 'rankings', 'local', 'grid', 'ai', 'keywords', 'competitors'] as const;
 type Step = (typeof STEPS)[number];
 const KEEP_REFRESHES = 26;
 const CRAWL_LIMIT = 300;
@@ -72,11 +80,29 @@ function fail(msg: string): never {
 const log = (msg: string) => console.log(msg);
 
 // ── Plan / dry run ──
-const llmEngines = ENGINES.filter((e): e is keyof typeof LLM_SLUG => e !== 'google_ai_overview');
+// ChatGPT goes straight to OpenAI when there's a key; everything else (and ChatGPT without one) through DataForSEO.
+// The DataForSEO sandbox is free; direct calls aren't, so a sandbox run skips them.
+const openAiKey = sandbox ? undefined : process.env.OPENAI_API_KEY?.trim();
+const openAiModel = process.env.OPENAI_MODEL?.trim() || AI_DIRECT.chatgpt.model;
+const viaOpenAi = (e: AiEngine) => e === 'chatgpt' && !!openAiKey;
+// Claude likewise straight to Anthropic when there are credentials.
+const anthropicOn = !sandbox && hasAnthropicCredentials(process.env);
+const anthropicModel = process.env.ANTHROPIC_MODEL?.trim() || AI_DIRECT.claude.model;
+const viaAnthropic = (e: AiEngine) => e === 'claude' && anthropicOn;
+const llmEngines = ENGINES.filter((e): e is keyof typeof LLM_SLUG => e !== 'google_ai_overview' && !viaOpenAi(e) && !viaAnthropic(e));
+// A rough direct-answer size for the dry run: a short prompt, a few searches' worth of results read, a short answer.
+const DIRECT_GUESS = { inputTokens: 12_000, outputTokens: 1_500, searches: 2 };
+const points = gridPoints(MARKETS, GRID.spacingMiles, GRID.marginMiles);
 const plan = {
   rankings: { calls: KEYWORDS.length * MARKETS.length, usd: KEYWORDS.length * MARKETS.length * ESTIMATE.organicPer10 * Math.ceil(RANK_DEPTH / 10) },
   local: { calls: LOCAL_KEYWORDS.length * MARKETS.length, usd: LOCAL_KEYWORDS.length * MARKETS.length * ESTIMATE.maps },
-  ai: { calls: PROMPTS.length * ENGINES.length, usd: PROMPTS.length * (llmEngines.length * ESTIMATE.llm + (ENGINES.includes('google_ai_overview') ? ESTIMATE.aiOverviewSerp : 0)) },
+  grid: { calls: GRID.keywords.length * points.length, usd: GRID.keywords.length * points.length * ESTIMATE.maps },
+  ai: {
+    calls: PROMPTS.length * ENGINES.length,
+    usd: PROMPTS.length * (llmEngines.length * ESTIMATE.llm + (ENGINES.includes('google_ai_overview') ? ESTIMATE.aiOverviewSerp : 0)
+      + (openAiKey && ENGINES.includes('chatgpt') ? costOf(AI_DIRECT.chatgpt.price, DIRECT_GUESS.inputTokens, DIRECT_GUESS.outputTokens, DIRECT_GUESS.searches) : 0)
+      + (anthropicOn && ENGINES.includes('claude') ? costOf(AI_DIRECT.claude.price, DIRECT_GUESS.inputTokens, DIRECT_GUESS.outputTokens, DIRECT_GUESS.searches) : 0))
+  },
   keywords: { calls: 1, usd: ESTIMATE.searchVolume },
   competitors: { calls: (COMPETITOR_LIMIT + 1) * 2, usd: (COMPETITOR_LIMIT + 1) * (ESTIMATE.domainRank + ESTIMATE.backlinks) }
 };
@@ -90,6 +116,11 @@ for (const s of steps) {
   else if (s === 'search-console') log(`  search-console  free  ${gscProperty}: 16 months by day, top search terms and pages`);
   else log(`  ${s.padEnd(12)} ${String(plan[s].calls).padStart(4)} calls  ~$${plan[s].usd.toFixed(2)}`);
 }
+if (steps.has('ai')) {
+  const how = (e: AiEngine) => (viaOpenAi(e) ? ` (OpenAI API, ${openAiModel})` : viaAnthropic(e) ? ` (Anthropic API, ${anthropicModel})` : '');
+  const hint = sandbox ? '' : [!openAiKey && 'OPENAI_API_KEY for ChatGPT', !anthropicOn && 'ANTHROPIC_API_KEY for Claude'].filter(Boolean).join(', ');
+  log(`  ai engines   ${ENGINES.map((e) => e + how(e)).join(', ')}${sandbox ? ' · sandbox: direct API calls are skipped' : hint ? ` · to ask directly, set ${hint}` : ''}`);
+}
 if (gscSkipped) log("  search-console  skipped (no GSC_SERVICE_ACCOUNT); the last snapshot's data is kept");
 if (paidSteps.length) log(`  estimate     ~$${estimate.toFixed(2)} (list prices; the snapshot records DataForSEO's actual charge${sandbox ? '; the sandbox charges nothing' : ''})`);
 if (dryRun) process.exit(0);
@@ -97,6 +128,7 @@ if (dryRun) process.exit(0);
 const creds = credentialsFromEnv(process.env);
 if (paidSteps.length && !creds) fail('No DataForSEO credentials. Set DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD (API credentials from app.dataforseo.com → API Access) in .env, or run with --only=audit.');
 const client: Client | null = creds ? createClient(creds, { base: sandbox ? SANDBOX_BASE : API_BASE }) : null;
+const claude = anthropicOn && steps.has('ai') ? claudeClient() : null;
 
 // ── State ──
 const prev: SeoSnapshot | null = existsSync(join(OUT, 'snapshot.json')) ? (JSON.parse(readFileSync(join(OUT, 'snapshot.json'), 'utf8')) as SeoSnapshot) : null;
@@ -212,6 +244,19 @@ async function runAudit(): Promise<SiteAudit> {
   };
 }
 
+async function runGrid(): Promise<GridResult[]> {
+  const jobs = GRID.keywords.flatMap((keyword) => points.map((p) => ({ keyword, p })));
+  log(`  ${points.length} points, ${GRID.spacingMiles} mi apart · ${GRID.keywords.join(', ')}`);
+  return pool(jobs, 5, async ({ keyword, p }) => {
+    const r = await client!.post(PATH.maps, mapsTask(keyword, p.lat, p.lon, GRID.zoom));
+    cost('grid', r.cost);
+    const { names, position, topThree } = parseMaps(r.result, SITE_DOMAIN);
+    noteNames(names);
+    const first = topThree[0];
+    return { ...p, date: today, keyword, position, leader: first ? { title: first.title, domain: first.domain } : null } satisfies GridResult;
+  });
+}
+
 // ── Search Console (free) ──
 function serviceAccount(): ServiceAccount {
   const key = gscKey!;
@@ -311,10 +356,22 @@ async function runAi(competitors: SeoBrand[]): Promise<AiAnswer[]> {
   const home = MARKETS[0]!;
   const jobs = PROMPTS.flatMap((p) => ENGINES.map((engine) => ({ p, engine })));
   const rows = await pool(jobs, 3, async ({ p, engine }) => {
-    const base = { date: today, promptId: p.id, engine: engine as AiEngine };
+    const direct = viaOpenAi(engine) ? 'openai' as const : viaAnthropic(engine) ? 'anthropic' as const : null;
+    const base = {
+      date: today, promptId: p.id, engine: engine as AiEngine, via: direct ?? 'dataforseo' as const,
+      model: direct === 'openai' ? openAiModel : direct === 'anthropic' ? anthropicModel : engine === 'google_ai_overview' ? null : (models[engine as keyof typeof LLM_SLUG] ?? null)
+    };
     try {
       let answer;
-      if (engine === 'google_ai_overview') {
+      if (direct) {
+        const a = direct === 'openai'
+          ? await askOpenAi(openAiKey!, openAiModel, p.text, AI_SEARCH_LOCATION, AI_DIRECT.chatgpt.effort, AI_DIRECT.chatgpt.price)
+          : await askClaude(claude!, anthropicModel, p.text, AI_SEARCH_LOCATION, AI_DIRECT.claude.effort, AI_DIRECT.claude.price);
+        cost(direct, a.usd);
+        if (!a.complete) log(`  ${engine} · ${p.id}: answer cut short or declined`);
+        answer = a;
+        base.model = a.model;
+      } else if (engine === 'google_ai_overview') {
         const r = await client!.post(PATH.organic, organicTask(p.text, home.locationName, 10, true));
         cost('ai', r.cost);
         answer = parseOrganic(r.result, SITE_DOMAIN).aiOverview ?? { text: '', citations: [] };
@@ -359,6 +416,7 @@ const audit = await step('audit', runAudit);
 const searchConsole = await step('search-console', runSearchConsole);
 const rankings = await step('rankings', runRankings);
 const local = await step('local', runLocal);
+const grid = await step('grid', runGrid);
 // Fresh discovery needs this run's rankings; otherwise keep the last known list.
 const competitors = rankings ? discoverCompetitors() : (prev?.targets.competitors ?? []);
 if (rankings) log(`\n  competitors: ${competitors.map((c) => `${c.name} (${c.domain})`).join(', ') || 'none found'}`);
@@ -380,6 +438,7 @@ const snapshot: SeoSnapshot = {
   targets: { domain: SITE_DOMAIN, brand: BRAND, markets: MARKETS, keywords: KEYWORDS, prompts: PROMPTS, engines: ENGINES, competitors, rankDepth: RANK_DEPTH },
   rankings: merge(prev?.rankings, rankings),
   local: merge(prev?.local, local),
+  grid: merge(prev?.grid, grid),
   ai: merge(prev?.ai, ai),
   keywords: keywords ?? prev?.keywords ?? [],
   competitors: profiles ?? prev?.competitors ?? [],
