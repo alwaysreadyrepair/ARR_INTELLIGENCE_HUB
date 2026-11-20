@@ -13,7 +13,8 @@ import type {
   WeatherForecast, WeatherNormal, WeatherObservation
 } from '../domain/types.ts';
 import type {
-  AiAnswer, AiEngine, CompetitorProfile, KeywordMetric, LocalPackResult, RankObservation, SeoService, SeoSpend, SeoTargets, SiteAudit
+  AiAnswer, AiEngine, CompetitorProfile, GridResult, KeywordMetric, LocalPackResult, RankObservation, SeoService, SeoSpend, SeoTargets, SiteAudit,
+  SearchConsoleData
 } from '../domain/seo.ts';
 
 export interface Page<T> {
@@ -134,10 +135,14 @@ export interface SeoRepository {
   targets(): Promise<SeoTargets>;
   rankings(filter?: { marketId?: string; service?: SeoService }): Promise<RankObservation[]>;
   local(filter?: { marketId?: string }): Promise<LocalPackResult[]>;
+  /** Map-pack grid results, every refresh that has them. Empty until a refresh runs the grid step. */
+  grid(filter?: { keyword?: string }): Promise<GridResult[]>;
   aiAnswers(filter?: { engine?: AiEngine; promptId?: string }): Promise<AiAnswer[]>;
   keywords(): Promise<KeywordMetric[]>;
   competitors(): Promise<CompetitorProfile[]>;
   audit(): Promise<SiteAudit | null>;
+  /** Null until a refresh has pulled Search Console data. */
+  searchConsole(): Promise<SearchConsoleData | null>;
   spend(): Promise<SeoSpend[]>;
 }
 

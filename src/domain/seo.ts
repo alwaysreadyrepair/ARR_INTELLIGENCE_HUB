@@ -102,6 +102,32 @@ export interface AiAnswer {
   citedDomains: string[];
   /** Up to ~400 characters around ARR's first mention, or the start of the answer. */
   excerpt: string;
+  /** How the answer was fetched: through DataForSEO, or straight from the engine's own API. Missing in older
+   *  snapshots, which were all DataForSEO. */
+  via?: 'dataforseo' | 'openai' | 'anthropic';
+  /** The model that answered, when known. */
+  model?: string | null;
+}
+
+/** One search point of the map-pack grid. Row 0 is the north edge, column 0 the west edge. `marketId` is the
+ *  nearest tracked city, for labels and roll-ups only. */
+export interface GridPoint {
+  row: number;
+  col: number;
+  lat: number;
+  lon: number;
+  marketId: string;
+}
+
+/** Google Maps searched for a keyword from one grid point on one date. Carries its own point, so a refresh with a
+ *  different grid doesn't break the history. */
+export interface GridResult extends GridPoint {
+  date: ISODate;
+  keyword: string;
+  /** ARR's position in the Maps list; null when it isn't in the first 20. */
+  position: number | null;
+  /** The business Google lists first from this point. */
+  leader: { title: string; domain: string | null } | null;
 }
 
 export interface KeywordMetric {
@@ -170,9 +196,49 @@ export interface SiteAudit {
 /** What a refresh cost, by area. Recorded from DataForSEO's own per-task cost field. */
 export interface SeoSpend {
   date: ISODate;
-  area: 'rankings' | 'local' | 'ai' | 'keywords' | 'competitors';
+  /** `openai` and `anthropic` are AI answers asked directly; `ai` is the ones asked through DataForSEO. */
+  area: 'rankings' | 'local' | 'grid' | 'ai' | 'openai' | 'anthropic' | 'keywords' | 'competitors';
   calls: number;
   usd: number;
+}
+
+/** Clicks, impressions, click-through rate and average position, as Google Search Console reports them. `ctr` is a
+ *  0–1 ratio; `position` is the impression-weighted average (1 = top). */
+export interface GscMetrics {
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+}
+
+/** One search term (or one page) over the current period, with the same numbers for the period before. `prev` is
+ *  null when it had no impressions then. */
+export interface GscQueryRow extends GscMetrics {
+  query: string;
+  prev: GscMetrics | null;
+}
+export interface GscPageRow extends GscMetrics {
+  page: string;
+  prev: GscMetrics | null;
+}
+
+/** What Google measured for ARR's own site, from the Search Console API: real clicks and impressions, not
+ *  estimates. Google reports with a 2–3 day lag and keeps 16 months. Rare search terms are hidden for privacy, so the
+ *  query rows add up to less than `totals`. Replaced (not merged) on each refresh, since Google keeps the history. */
+export interface SearchConsoleData {
+  /** The Search Console property, e.g. `sc-domain:alwaysreadyrepair.com`. */
+  property: string;
+  fetchedAt: ISODateTime;
+  /** The comparison windows: the last `days` days with data, and the same number of days before. */
+  period: { start: ISODate; end: ISODate; days: number };
+  previous: { start: ISODate; end: ISODate };
+  /** Whole-site totals for each window, hidden search terms included. */
+  totals: { current: GscMetrics; previous: GscMetrics };
+  /** Whole-site numbers per day, up to 16 months, oldest first. */
+  daily: (GscMetrics & { date: ISODate })[];
+  /** Top search terms and pages in the current window, by clicks then impressions. */
+  queries: GscQueryRow[];
+  pages: GscPageRow[];
 }
 
 /** The whole SEO dataset, as the refresh script writes it and the snapshot repository reads it. History is kept
@@ -183,9 +249,13 @@ export interface SeoSnapshot {
   targets: SeoTargets;
   rankings: RankObservation[];
   local: LocalPackResult[];
+  /** Missing in snapshots written before the grid step existed. */
+  grid?: GridResult[];
   ai: AiAnswer[];
   keywords: KeywordMetric[];
   competitors: CompetitorProfile[];
   audit: SiteAudit | null;
+  /** Missing in snapshots written before the Search Console step existed. */
+  searchConsole?: SearchConsoleData | null;
   spend: SeoSpend[];
 }

@@ -5,11 +5,12 @@
  * with .example domains, so no real company is ever shown with made-up numbers. */
 
 import type {
-  AiAnswer, AiEngine, AuditIssue, AuditPage, CompetitorProfile, KeywordMetric, LocalPackResult, RankObservation,
-  SeoBrand, SeoSnapshot, SeoSpend, SiteAudit
+  AiAnswer, AiEngine, AuditIssue, AuditPage, CompetitorProfile, GridResult, GscMetrics, GscPageRow, GscQueryRow, KeywordMetric, LocalPackResult,
+  RankObservation, SearchConsoleData, SeoBrand, SeoSnapshot, SeoSpend, SiteAudit
 } from '../../domain/seo.ts';
 import { rng } from '../../lib/rng.ts';
-import { BRAND, ENGINES, KEYWORDS, LOCAL_KEYWORDS, MARKETS, PROMPTS, RANK_DEPTH, SITE_DOMAIN } from '../seo/targets.ts';
+import { gridPoints, milesBetween } from '../../lib/seo/grid.ts';
+import { BRAND, ENGINES, GRID, GSC_PROPERTY, GSC_WINDOW_DAYS, KEYWORDS, LOCAL_KEYWORDS, MARKETS, PROMPTS, RANK_DEPTH, SITE_DOMAIN } from '../seo/targets.ts';
 
 const DAY = 86_400_000;
 const WEEKS = 12;
@@ -85,6 +86,9 @@ export function buildMockSeoSnapshot(now: Date): SeoSnapshot {
     }
   }
 
+  // ── Map-pack grid (last 4 weeks: the newest step). Seeded on its own so the rest of the mock doesn't shift. ──
+  const grid = buildMockGrid(dates.slice(-4));
+
   // ── AI answers: every prompt × engine every week. ARR shows up more often over time. ──
   const BASE: Record<AiEngine, number> = { perplexity: 0.42, chatgpt: 0.26, gemini: 0.2, claude: 0.2, google_ai_overview: 0.16 };
   const ai: AiAnswer[] = [];
@@ -100,6 +104,8 @@ export function buildMockSeoSnapshot(now: Date): SeoSnapshot {
         const names = [...(mentioned ? [BRAND.name] : []), ...competitorsMentioned.map((d) => COMPETITORS.find((c) => c.domain === d)!.name)];
         ai.push({
           date, promptId: p.id, engine, answered, mentioned, cited, mentionRank, competitorsMentioned, citedDomains,
+          // ChatGPT shows as asked directly through OpenAI, the way a refresh with OPENAI_API_KEY records it.
+          via: engine === 'chatgpt' ? 'openai' : 'dataforseo', model: engine === 'chatgpt' ? 'gpt-5.5' : null,
           excerpt: !answered ? '' : names.length
             ? `For this, homeowners in the area often look at ${names.join(', ')}. Compare upfront pricing, warranty terms and how quickly each can schedule a visit.`
             : 'Look for a licensed, insured contractor with recent reviews, clear pricing and a written estimate before any work starts.'
@@ -172,6 +178,7 @@ export function buildMockSeoSnapshot(now: Date): SeoSnapshot {
   const spend: SeoSpend[] = dates.flatMap((date, i) => [
     { date, area: 'rankings' as const, calls: KEYWORDS.length * MARKETS.length, usd: Math.round(KEYWORDS.length * MARKETS.length * 0.002 * 100) / 100 },
     { date, area: 'ai' as const, calls: PROMPTS.length * ENGINES.length, usd: Math.round(PROMPTS.length * ENGINES.length * 0.012 * 100) / 100 },
+    ...(i >= WEEKS - 4 ? [{ date, area: 'grid' as const, calls: GRID.keywords.length * 54, usd: Math.round(GRID.keywords.length * 54 * 0.004 * 100) / 100 }] : []),
     ...(i >= WEEKS - 6 ? [{ date, area: 'local' as const, calls: LOCAL_KEYWORDS.length * MARKETS.length, usd: Math.round(LOCAL_KEYWORDS.length * MARKETS.length * 0.002 * 100) / 100 }] : []),
     ...(i % 4 === 3 ? [{ date, area: 'keywords' as const, calls: 1, usd: 0.08 }, { date, area: 'competitors' as const, calls: 14, usd: 0.42 }] : [])
   ]);
@@ -180,6 +187,145 @@ export function buildMockSeoSnapshot(now: Date): SeoSnapshot {
     version: 1,
     takenAt: new Date(lastMonday + 7 * 3_600_000).toISOString(),
     targets: { domain: SITE_DOMAIN, brand: BRAND, markets: MARKETS, keywords: KEYWORDS, prompts: PROMPTS, engines: ENGINES, competitors: COMPETITORS, rankDepth: RANK_DEPTH },
-    rankings, local, ai, keywords, competitors, audit, spend
+    rankings, local, grid, ai, keywords, competitors, audit, spend,
+    searchConsole: buildMockSearchConsole(now, new Date(lastMonday + 7 * 3_600_000).toISOString())
   };
+}
+
+// ── Search Console ──
+
+/** Share of searchers who click a result at each organic position, 1–10; beyond that, a trickle. Typical published
+ *  curves for local service searches, close enough for synthetic data. */
+const CTR_AT = [0.28, 0.15, 0.1, 0.07, 0.05, 0.04, 0.032, 0.026, 0.021, 0.018];
+const ctrAt = (pos: number) => CTR_AT[Math.round(pos) - 1] ?? Math.max(0.002, 0.012 - (pos - 10) * 0.001);
+/** Whole-site demand by month, Jan..Dec: both heating and cooling seasons show. */
+const SITE_SEASON = [1.3, 1.1, 0.8, 0.7, 0.9, 1.3, 1.5, 1.25, 0.8, 1.0, 1.4, 1.5];
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+function metricsFrom(clicks: number, impressions: number, position: number): GscMetrics {
+  return { clicks, impressions, ctr: impressions ? clicks / impressions : 0, position: round2(position) };
+}
+
+/** 16 months of daily site numbers, plus search terms and pages for the last 28 days and the 28 before. Seeded on
+ *  its own so it doesn't shift the rest of the mock data. */
+export function buildMockSearchConsole(now: Date, fetchedAt: string): SearchConsoleData {
+  const r = rng(9090);
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const end = today - 3 * DAY; // Google's reporting lag
+  const HISTORY = 486;
+
+  const daily = Array.from({ length: HISTORY }, (_, i) => {
+    const t = end - (HISTORY - 1 - i) * DAY;
+    const d = new Date(t);
+    const growth = 0.75 + 0.35 * (i / HISTORY);
+    const weekend = d.getUTCDay() === 0 || d.getUTCDay() === 6 ? 0.68 : 1;
+    const impressions = Math.max(0, Math.round(1000 * SITE_SEASON[d.getUTCMonth()]! * growth * weekend * r.normal(1, 0.08)));
+    const position = Math.max(1, r.normal(15.5 - 4 * (i / HISTORY), 0.6));
+    const clicks = Math.round(impressions * Math.min(0.08, 0.034 + (15.5 - position) * 0.002) * r.normal(1, 0.07));
+    return { date: isoDay(t), ...metricsFrom(clicks, impressions, position) };
+  });
+
+  const days = GSC_WINDOW_DAYS;
+  const period = { start: isoDay(end - (days - 1) * DAY), end: isoDay(end), days };
+  const previous = { start: isoDay(end - (2 * days - 1) * DAY), end: isoDay(end - days * DAY) };
+  const total = (from: string, to: string) => {
+    const rows = daily.filter((d) => d.date >= from && d.date <= to);
+    const imp = rows.reduce((s, d) => s + d.impressions, 0);
+    return metricsFrom(rows.reduce((s, d) => s + d.clicks, 0), imp, imp ? rows.reduce((s, d) => s + d.position * d.impressions, 0) / imp : 0);
+  };
+  const totals = { current: total(period.start, period.end), previous: total(previous.start, previous.end) };
+
+  // Search terms: brand, each tracked keyword alone / "near me" / with a city, and a few questions.
+  const site = `https://www.${SITE_DOMAIN}`;
+  const terms: { query: string; page: string; demand: number; pos: number }[] = [
+    { query: 'arr heating and cooling', page: '/', demand: 900, pos: 1.1 },
+    { query: 'always ready repair', page: '/', demand: 420, pos: 1.2 },
+    { query: 'arr hvac', page: '/', demand: 260, pos: 1.6 },
+    { query: 'arr heating and cooling reviews', page: '/reviews', demand: 120, pos: 1.4 },
+    { query: 'always ready repair orland park', page: '/', demand: 90, pos: 1.1 }
+  ];
+  const pageFor = (service: string) => (service === 'general' || service === 'emergency' ? '/' : `/${service}`);
+  for (const k of KEYWORDS) {
+    const base = k.service === 'general' ? 9 : k.service === 'boiler' ? 22 : 12;
+    terms.push({ query: k.keyword, page: pageFor(k.service), demand: r.int(900, 4000), pos: r.normal(base + 10, 4) });
+    terms.push({ query: `${k.keyword} near me`, page: pageFor(k.service), demand: r.int(500, 2600), pos: r.normal(base + 4, 3) });
+    for (const m of MARKETS) {
+      if (r.next() < 0.35) continue;
+      const dist = MARKET_DISTANCE[m.id] ?? 3;
+      const city = m.city.toLowerCase();
+      const page = dist <= 1 && r.next() < 0.5 ? `/service-area/${m.id}` : pageFor(k.service);
+      terms.push({ query: r.next() < 0.5 ? `${k.keyword} ${city}` : `${city} ${k.keyword}`, page, demand: r.int(40, 520), pos: r.normal(base - 6 + dist * 3, 2.5) });
+    }
+  }
+  for (const [query, page, demand, pos] of [
+    ['how much does a new furnace cost', '/blog/furnace-cost-2026', 3200, 9.5],
+    ['new furnace cost chicago suburbs', '/blog/furnace-cost-2026', 380, 5.2],
+    ['heat pump vs furnace illinois', '/blog/heat-pump-vs-furnace', 1400, 7.8],
+    ['furnace blowing cold air', '/furnace', 2100, 16],
+    ['ac not cooling house', '/ac', 1800, 18.5],
+    ['hvac financing', '/financing', 600, 12],
+    ['hvac maintenance plan cost', '/maintenance', 450, 8.4]
+  ] as const) terms.push({ query, page, demand, pos });
+
+  const queries: GscQueryRow[] = [];
+  const pageTotals = new Map<string, { now: GscMetrics[]; prev: GscMetrics[] }>();
+  for (const t of terms) {
+    const pos = Math.max(1, t.pos);
+    const impressions = Math.max(1, Math.round(t.demand * Math.max(0.08, 1 - pos * 0.035) * r.normal(1, 0.1)));
+    const clicks = Math.round(impressions * ctrAt(pos) * r.normal(1, 0.15));
+    const prevPos = Math.max(1, pos + r.normal(0.6, 1.4));
+    const prevImp = Math.round(impressions * r.normal(0.92, 0.12));
+    // A few non-brand terms are new this window; brand searches are always there.
+    const prev = r.next() < 0.08 && t.pos > 2 ? null : metricsFrom(Math.round(prevImp * ctrAt(prevPos)), prevImp, prevPos);
+    const now = metricsFrom(clicks, impressions, pos);
+    queries.push({ query: t.query, ...now, prev });
+    const pt = pageTotals.get(t.page) ?? { now: [], prev: [] };
+    pt.now.push(now);
+    if (prev) pt.prev.push(prev);
+    pageTotals.set(t.page, pt);
+  }
+  queries.sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions);
+
+  const sum = (rows: GscMetrics[]) => {
+    const imp = rows.reduce((s, x) => s + x.impressions, 0);
+    return metricsFrom(rows.reduce((s, x) => s + x.clicks, 0), imp, imp ? rows.reduce((s, x) => s + x.position * x.impressions, 0) / imp : 0);
+  };
+  const pages: GscPageRow[] = [...pageTotals]
+    .map(([path, t]) => ({ page: `${site}${path}`, ...sum(t.now), prev: t.prev.length ? sum(t.prev) : null }))
+    .sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions);
+
+  return { property: GSC_PROPERTY, fetchedAt, period, previous, totals, daily, queries, pages };
+}
+
+// ── Map-pack grid ──
+
+/** Grid results around a shop in Orland Park: strong nearby, fading with distance, weakest to the south-east, where
+ *  an invented competitor is based. "furnace repair" fades faster than "hvac company". A little better each week. */
+function buildMockGrid(dates: string[]): GridResult[] {
+  const r = rng(5151);
+  const shop = MARKETS.find((m) => m.id === 'orland-park') ?? MARKETS[0]!;
+  const points = gridPoints(MARKETS, GRID.spacingMiles, GRID.marginMiles);
+  const byName = (name: string) => COMPETITORS.find((c) => c.name === name)!;
+  // Who leads where ARR doesn't: by compass direction from the shop.
+  const rival = (lat: number, lon: number) =>
+    lat < shop.lat - 0.06 ? byName(lon > shop.lon ? 'Will County HVAC' : 'Midwest Climate Pros')
+      : lon > shop.lon + 0.04 ? byName(lat > shop.lat ? 'Lakeview Mechanical' : 'Southwest Suburban Heating')
+        : byName(r.next() < 0.5 ? 'Orland Air Co.' : 'Prairie State Comfort');
+  const out: GridResult[] = [];
+  for (const keyword of GRID.keywords) {
+    const falloff = keyword === 'furnace repair' ? 0.42 : 0.17;
+    const noise = new Map(points.map((p) => [`${p.row},${p.col}`, r.normal(0, 1.1)]));
+    for (const [i, date] of dates.entries()) {
+      for (const p of points) {
+        const dist = milesBetween(p, shop);
+        const southEast = p.lat < shop.lat - 0.05 && p.lon > shop.lon ? 3 : 0;
+        const raw = 1 + falloff * dist ** 1.6 + southEast + noise.get(`${p.row},${p.col}`)! + r.normal(0, 0.5) - i * 0.25;
+        const pos = Math.max(1, Math.round(raw));
+        const position = pos > 20 ? null : pos;
+        const lead = position === 1 ? { name: BRAND.name, domain: SITE_DOMAIN } : rival(p.lat, p.lon);
+        out.push({ ...p, date, keyword, position, leader: { title: lead.name, domain: lead.domain } });
+      }
+    }
+  }
+  return out;
 }
