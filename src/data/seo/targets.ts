@@ -11,6 +11,13 @@ import type { AiEngine, AiPrompt, SeoBrand, SeoMarket, TrackedKeyword } from '..
 
 export const SITE_DOMAIN = 'alwaysreadyrepair.com';
 
+/** The Search Console property the refresh reads. A Domain property covers www and every protocol; use the
+ *  `https://www.alwaysreadyrepair.com/` form instead if only a URL-prefix property is verified. GSC_PROPERTY in the
+ *  environment overrides it. */
+export const GSC_PROPERTY = `sc-domain:${SITE_DOMAIN}`;
+/** The comparison window on the Search Console tab, in days. */
+export const GSC_WINDOW_DAYS = 28;
+
 export const BRAND: SeoBrand = {
   domain: SITE_DOMAIN,
   name: 'ARR Heating + Cooling',

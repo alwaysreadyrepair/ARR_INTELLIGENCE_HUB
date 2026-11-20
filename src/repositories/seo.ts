@@ -47,6 +47,9 @@ export function seoRepositoryFrom(kind: SeoRepository['kind'], get: () => Promis
     async audit() {
       return (await need()).audit;
     },
+    async searchConsole() {
+      return (await need()).searchConsole ?? null;
+    },
     async spend() {
       return byDate((await need()).spend);
     }

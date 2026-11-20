@@ -278,3 +278,85 @@ test('localSummary and auditIssues group and order', () => {
   assert.deepEqual(g.map((i) => [i.code, i.pages]), [['noindex', 1], ['thin-content', 2], ['llms-txt-missing', 0]]);
   assert.ok(!g[1]!.message.includes('100'), 'grouped message is generic');
 });
+
+// ─── gsc.ts and the Search Console roll-ups ───
+
+test('signAssertion makes an RS256 JWT for the Search Console scope that verifies with the account key', async () => {
+  const { generateKeyPairSync, createVerify } = await import('node:crypto');
+  const { signAssertion, parseServiceAccount, SCOPE, TOKEN_URL } = await import('./gsc.ts');
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const sa = parseServiceAccount(JSON.stringify({ type: 'service_account', client_email: 'hub@arr.iam.gserviceaccount.com', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }) }));
+  const jwt = signAssertion(sa, new Date('2026-11-20T12:00:00Z'));
+  const [h, c, sig] = jwt.split('.');
+  assert.deepEqual(JSON.parse(Buffer.from(h!, 'base64url').toString()), { alg: 'RS256', typ: 'JWT' });
+  const claims = JSON.parse(Buffer.from(c!, 'base64url').toString());
+  assert.equal(claims.iss, sa.client_email);
+  assert.equal(claims.scope, SCOPE);
+  assert.equal(claims.aud, TOKEN_URL);
+  assert.equal(claims.exp - claims.iat, 3600);
+  const v = createVerify('RSA-SHA256');
+  v.update(`${h}.${c}`);
+  assert.ok(v.verify(publicKey, Buffer.from(sig!, 'base64url')));
+});
+
+test('parseServiceAccount rejects JSON that is not a service-account key', async () => {
+  const { parseServiceAccount } = await import('./gsc.ts');
+  assert.throws(() => parseServiceAccount('not json'), /not valid JSON/);
+  assert.throws(() => parseServiceAccount('{"installed":{}}'), /client_email/);
+});
+
+test('searchAnalytics posts to the property and explains a 403', async () => {
+  const { searchAnalytics } = await import('./gsc.ts');
+  let seen = '';
+  const ok = (async (u: string, init: RequestInit) => {
+    seen = `${u} ${String(init.body)}`;
+    return new Response(JSON.stringify({ rows: [{ keys: ['furnace repair'], clicks: 3, impressions: 40, ctr: 0.075, position: 6.2 }, { keys: ['x'] }] }), { status: 200 });
+  }) as unknown as typeof fetch;
+  const rows = await searchAnalytics('tok', 'sc-domain:alwaysreadyrepair.com', { startDate: '2026-10-01', endDate: '2026-10-28', dimensions: ['query'] }, ok);
+  assert.ok(seen.includes('/sites/sc-domain%3Aalwaysreadyrepair.com/searchAnalytics/query'));
+  assert.ok(seen.includes('"type":"web"'));
+  assert.deepEqual(rows[0], { keys: ['furnace repair'], clicks: 3, impressions: 40, ctr: 0.075, position: 6.2 });
+  assert.deepEqual(rows[1], { keys: ['x'], clicks: 0, impressions: 0, ctr: 0, position: 0 });
+  const denied = (async () => new Response(JSON.stringify({ error: { message: 'User does not have sufficient permission' } }), { status: 403 })) as unknown as typeof fetch;
+  await assert.rejects(searchAnalytics('tok', 'sc-domain:x.com', { startDate: 'a', endDate: 'b' }, denied, 'hub@x.iam'), /Add hub@x\.iam as a user/);
+});
+
+test('windows gives two back-to-back windows of equal length; withPrevious joins by key', async () => {
+  const { windows, withPrevious, totalsOf } = await import('./gsc.ts');
+  assert.deepEqual(windows('2026-11-17', 28), { period: { start: '2026-10-21', end: '2026-11-17', days: 28 }, previous: { start: '2026-09-23', end: '2026-10-20' } });
+  const m = (clicks: number) => ({ clicks, impressions: clicks * 10, ctr: 0.1, position: 5 });
+  const joined = withPrevious('query', [{ keys: ['a'], ...m(5) }, { keys: ['b'], ...m(2) }], [{ keys: ['a'], ...m(3) }]);
+  assert.equal(joined[0]!.query, 'a');
+  assert.equal(joined[0]!.prev?.clicks, 3);
+  assert.equal(joined[1]!.prev, null);
+  assert.deepEqual(totalsOf([]), { clicks: 0, impressions: 0, ctr: 0, position: 0 });
+});
+
+test('isBrandQuery spots ARR by name, domain or "arr" + an HVAC word, and nothing else', async () => {
+  const { isBrandQuery } = await import('./stats.ts');
+  for (const q of ['arr heating and cooling', 'ARR Heating & Cooling reviews', 'always ready repair orland park', 'alwaysreadyrepair.com', 'arr hvac']) assert.ok(isBrandQuery(q, ARR), q);
+  for (const q of ['furnace repair orland park', 'carrier furnace', 'arrow heating', 'hvac near me']) assert.ok(!isBrandQuery(q, ARR), q);
+});
+
+test('sumMetrics weights position by impressions; gscWeekly drops partial weeks', async () => {
+  const { sumMetrics, gscWeekly } = await import('./stats.ts');
+  const s = sumMetrics([{ clicks: 10, impressions: 100, ctr: 0.1, position: 2 }, { clicks: 0, impressions: 300, ctr: 0, position: 10 }]);
+  assert.equal(s.clicks, 10);
+  assert.equal(s.ctr, 10 / 400);
+  assert.equal(s.position, 8);
+  // 2026-11-02 is a Monday: Sun 1st (partial week), then a full Mon–Sun week, then Mon 9th alone.
+  const days = Array.from({ length: 9 }, (_, i) => ({ date: `2026-11-0${i + 1}`, clicks: 1, impressions: 10, ctr: 0.1, position: 5 }));
+  assert.deepEqual(gscWeekly(days), [{ week: '2026-11-02', clicks: 7, impressions: 70 }]);
+});
+
+test('trackedKeywordTraffic matches every word in any order, skipping brand; gscOpportunities keeps positions 4–20', async () => {
+  const { trackedKeywordTraffic, gscOpportunities } = await import('./stats.ts');
+  const row = (query: string, impressions: number, position: number, clicks = 1) => ({ query, clicks, impressions, ctr: clicks / impressions, position, prev: null });
+  const queries = [row('furnace repair orland park', 100, 6), row('orland park furnace repair near me', 50, 12), row('arr heating furnace repair', 30, 1), row('furnace replacement', 80, 9)];
+  const [repair] = trackedKeywordTraffic(queries, [{ keyword: 'furnace repair', service: 'furnace' }], ARR);
+  assert.equal(repair!.terms, 2);
+  assert.equal(repair!.impressions, 150);
+  assert.equal(repair!.position, 8);
+  const wins = gscOpportunities([...queries, row('ac repair', 500, 2), row('boiler repair', 10, 8), row('hvac company', 300, 25)], ARR);
+  assert.deepEqual(wins.map((w) => w.query), ['furnace repair orland park', 'furnace replacement', 'orland park furnace repair near me']);
+});

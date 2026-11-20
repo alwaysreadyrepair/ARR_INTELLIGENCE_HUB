@@ -13,7 +13,8 @@ import type {
   WeatherForecast, WeatherNormal, WeatherObservation
 } from '../domain/types.ts';
 import type {
-  AiAnswer, AiEngine, CompetitorProfile, KeywordMetric, LocalPackResult, RankObservation, SeoService, SeoSpend, SeoTargets, SiteAudit
+  AiAnswer, AiEngine, CompetitorProfile, KeywordMetric, LocalPackResult, RankObservation, SeoService, SeoSpend, SeoTargets, SiteAudit,
+  SearchConsoleData
 } from '../domain/seo.ts';
 
 export interface Page<T> {
@@ -138,6 +139,8 @@ export interface SeoRepository {
   keywords(): Promise<KeywordMetric[]>;
   competitors(): Promise<CompetitorProfile[]>;
   audit(): Promise<SiteAudit | null>;
+  /** Null until a refresh has pulled Search Console data. */
+  searchConsole(): Promise<SearchConsoleData | null>;
   spend(): Promise<SeoSpend[]>;
 }
 

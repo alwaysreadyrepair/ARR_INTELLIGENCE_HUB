@@ -50,6 +50,7 @@ months old, and Will County has never been ingested.
 | `/projects` | API consumers: datasets, territories, key prefix, usage, rate limits, audit history |
 | `/seo` | SEO & AEO overview: AI answers naming ARR, Google top-3 share, map-pack share, site issues, biggest rank moves, refresh cost |
 | `/seo/ai` | AEO: each prompt × engine (ChatGPT, Perplexity, Gemini, Google AI Overview): named / cited / not named, the answers, weekly history, who gets named instead, which sites AI cites |
+| `/seo/search-console` | Google Search Console: real clicks, impressions, click rate and position for the last 28 days vs the 28 before; weekly clicks over 16 months; brand vs non-brand vs hidden; tracked keywords measured; closest wins (position 4–20); top search terms and pages |
 | `/seo/rankings` | Google organic position per keyword × city, change since last refresh, who ranks above us, SERP features; filter by city and service |
 | `/seo/local` | Google Maps position per keyword × city, and the three businesses holding the map pack |
 | `/seo/keywords` | Chicago-market search volume, CPC, competition and 12-month seasonality for the tracked keywords |
@@ -138,8 +139,9 @@ property data is still mock:
 ```bash
 npm run seo:refresh -- --dry-run      # steps, paid call count, rough cost (~$1.80 at list prices)
 npm run seo:refresh -- --only=audit   # the free site crawl only, no key needed
+npm run seo:refresh -- --only=search-console   # Google Search Console only, free; needs GSC_SERVICE_ACCOUNT
 npm run seo:refresh -- --sandbox      # DataForSEO's free sandbox: checks credentials and request shapes
-npm run seo:refresh                   # everything: audit, rankings, local, ai, keywords, competitors
+npm run seo:refresh                   # everything: audit, search-console, rankings, local, ai, keywords, competitors
 npm run seo:load                      # copy .seo/snapshot.json into the local SEO KV
 ```
 
@@ -152,6 +154,13 @@ and the previous refresh's data for it is kept. The snapshot keeps the last 26 r
 - `audit` (free): robots.txt (AI crawlers blocked?), sitemap, `/llms.txt`, then every sitemap page: title, meta
   description, H1, word count, canonical, noindex, JSON-LD types, FAQ content without FAQPage schema, images without
   alt text, duplicate titles. Findings that matter mostly to AI engines are tagged AEO.
+- `search-console` (free): Google Search Console for `GSC_PROPERTY` (`sc-domain:alwaysreadyrepair.com` by default):
+  16 months of clicks and impressions by day, plus search terms and pages for the last 28 days and the 28 before.
+  Setup, once: create a service account in Google Cloud, enable the Search Console API, download its JSON key, and
+  add the account's `client_email` as a user (Restricted is enough) on the property in Search Console. Then set
+  `GSC_SERVICE_ACCOUNT` in `.env` to the key's path (or its JSON). Without it a full refresh skips this step and
+  keeps the last data; `GSC_PROPERTY` overrides the property, e.g. `https://www.alwaysreadyrepair.com/` for a
+  URL-prefix property. Unlike the other steps it isn't merged with history, because Google keeps 16 months itself.
 - `rankings`: Google organic for every keyword × city, searched from that city, `RANK_DEPTH` results deep. It also
   records SERP features and whether we're in the local pack.
 - `local`: Google Maps from each city centre for `LOCAL_KEYWORDS`.

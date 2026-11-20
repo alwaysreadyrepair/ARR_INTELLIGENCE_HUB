@@ -2,12 +2,17 @@
  *
  *   npm run seo:refresh -- --dry-run            what would run, how many paid calls, rough cost
  *   npm run seo:refresh -- --only=audit         the free site crawl only (no DataForSEO key needed)
+ *   npm run seo:refresh -- --only=search-console   Google Search Console only (free; needs GSC_SERVICE_ACCOUNT)
  *   npm run seo:refresh                          everything
  *   npm run seo:refresh -- --sandbox            DataForSEO's free sandbox: real request shapes, fake data
  *   npm run seo:load                             put the snapshot in the Hub's local SEO KV
  *
- * Steps: audit, rankings, local, ai, keywords, competitors. Credentials: DATAFORSEO_LOGIN + DATAFORSEO_PASSWORD
- * (or DATAFORSEO_API_KEY = base64 "login:password") in the environment or .env.
+ * Steps: audit, search-console, rankings, local, ai, keywords, competitors. Credentials: DATAFORSEO_LOGIN +
+ * DATAFORSEO_PASSWORD (or DATAFORSEO_API_KEY = base64 "login:password") in the environment or .env.
+ *
+ * Search Console: GSC_SERVICE_ACCOUNT is a service-account JSON key, or the path to the key file. Add the account's
+ * client_email as a user on the property in Search Console first. GSC_PROPERTY overrides the property in
+ * src/data/seo/targets.ts. Without GSC_SERVICE_ACCOUNT a full refresh skips the step and keeps the old data.
  *
  * Output: .seo/snapshot.json (history merged in, last 26 refreshes kept) and .seo/history/<date>.json. A step that
  * fails is reported and skipped; the previous snapshot's data for that step is kept. Run weekly. */
@@ -15,16 +20,17 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AiAnswer, AiEngine, AuditIssue, AuditPage, CompetitorProfile, KeywordMetric, LocalPackResult, RankObservation, SeoBrand, SeoSnapshot, SeoSpend, SiteAudit } from '../src/domain/seo.ts';
-import { BRAND, COMPETITOR_LIMIT, ENGINES, KEYWORDS, LOCAL_KEYWORDS, MARKETS, NOT_COMPETITORS, PROMPTS, RANK_DEPTH, SITE_DOMAIN } from '../src/data/seo/targets.ts';
+import type { AiAnswer, AiEngine, AuditIssue, AuditPage, CompetitorProfile, KeywordMetric, LocalPackResult, RankObservation, SearchConsoleData, SeoBrand, SeoSnapshot, SeoSpend, SiteAudit } from '../src/domain/seo.ts';
+import { BRAND, COMPETITOR_LIMIT, ENGINES, GSC_PROPERTY, GSC_WINDOW_DAYS, KEYWORDS, LOCAL_KEYWORDS, MARKETS, NOT_COMPETITORS, PROMPTS, RANK_DEPTH, SITE_DOMAIN } from '../src/data/seo/targets.ts';
 import {
   API_BASE, credentialsFromEnv, createClient, ESTIMATE, LLM_SLUG, llmTask, mapsTask, MODEL_FALLBACK, organicTask, parseBacklinks, parseDomainRank,
   parseLlm, parseMaps, parseModels, parseOrganic, parseSearchVolume, PATH, pickModel, SANDBOX_BASE, type Client
 } from '../src/lib/seo/dataforseo.ts';
 import { matchAnswer, ownedDomain } from '../src/lib/seo/match.ts';
 import { auditPage, parseRobots, parseSitemap } from '../src/lib/seo/audit.ts';
+import { accessToken, historyStart, parseServiceAccount, searchAnalytics, totalsOf, windows, withPrevious, type ServiceAccount } from '../src/lib/seo/gsc.ts';
 
-const STEPS = ['audit', 'rankings', 'local', 'ai', 'keywords', 'competitors'] as const;
+const STEPS = ['audit', 'search-console', 'rankings', 'local', 'ai', 'keywords', 'competitors'] as const;
 type Step = (typeof STEPS)[number];
 const KEEP_REFRESHES = 26;
 const CRAWL_LIMIT = 300;
@@ -49,6 +55,16 @@ const steps = new Set<Step>(only ?? STEPS);
 const dryRun = flag('dry-run');
 const sandbox = flag('sandbox');
 
+// Search Console is free and needs its own credentials. A full refresh without them skips it; asking for it with
+// --only makes a missing key an error.
+const gscKey = process.env.GSC_SERVICE_ACCOUNT?.trim();
+const gscProperty = process.env.GSC_PROPERTY?.trim() || GSC_PROPERTY;
+const gscSkipped = !gscKey && steps.has('search-console');
+if (gscSkipped) {
+  if (only?.includes('search-console')) fail('No GSC_SERVICE_ACCOUNT. Set it to a service-account JSON key (or the path to one) in .env. See the header of this script.');
+  steps.delete('search-console');
+}
+
 function fail(msg: string): never {
   console.error(`\n✖ ${msg}\n`);
   process.exit(1);
@@ -64,11 +80,17 @@ const plan = {
   keywords: { calls: 1, usd: ESTIMATE.searchVolume },
   competitors: { calls: (COMPETITOR_LIMIT + 1) * 2, usd: (COMPETITOR_LIMIT + 1) * (ESTIMATE.domainRank + ESTIMATE.backlinks) }
 };
-const paidSteps = [...steps].filter((s) => s !== 'audit') as Exclude<Step, 'audit'>[];
+const FREE = new Set<Step>(['audit', 'search-console']);
+const paidSteps = [...steps].filter((s) => !FREE.has(s)) as Exclude<Step, 'audit' | 'search-console'>[];
 const estimate = paidSteps.reduce((s, k) => s + plan[k].usd, 0);
 
 log(`ARR SEO refresh · ${[...steps].join(', ')}${sandbox ? ' · SANDBOX' : ''}${dryRun ? ' · dry run' : ''}`);
-for (const s of steps) log(s === 'audit' ? `  audit        free     crawl of ${SITE_DOMAIN} (up to ${CRAWL_LIMIT} pages)` : `  ${s.padEnd(12)} ${String(plan[s].calls).padStart(4)} calls  ~$${plan[s].usd.toFixed(2)}`);
+for (const s of steps) {
+  if (s === 'audit') log(`  audit        free     crawl of ${SITE_DOMAIN} (up to ${CRAWL_LIMIT} pages)`);
+  else if (s === 'search-console') log(`  search-console  free  ${gscProperty}: 16 months by day, top search terms and pages`);
+  else log(`  ${s.padEnd(12)} ${String(plan[s].calls).padStart(4)} calls  ~$${plan[s].usd.toFixed(2)}`);
+}
+if (gscSkipped) log("  search-console  skipped (no GSC_SERVICE_ACCOUNT); the last snapshot's data is kept");
 if (paidSteps.length) log(`  estimate     ~$${estimate.toFixed(2)} (list prices; the snapshot records DataForSEO's actual charge${sandbox ? '; the sandbox charges nothing' : ''})`);
 if (dryRun) process.exit(0);
 
@@ -190,6 +212,45 @@ async function runAudit(): Promise<SiteAudit> {
   };
 }
 
+// ── Search Console (free) ──
+function serviceAccount(): ServiceAccount {
+  const key = gscKey!;
+  if (key.startsWith('{')) return parseServiceAccount(key);
+  const path = resolve(HUB, key);
+  if (!existsSync(path)) throw new Error(`GSC_SERVICE_ACCOUNT points at ${path}, which doesn't exist.`);
+  return parseServiceAccount(readFileSync(path, 'utf8'));
+}
+
+async function runSearchConsole(): Promise<SearchConsoleData> {
+  const sa = serviceAccount();
+  const token = await accessToken(sa);
+  const q = (body: Parameters<typeof searchAnalytics>[2]) => searchAnalytics(token, gscProperty, body, fetch, sa.client_email);
+
+  // Google lags 2–3 days; the last day it returns is the end of the window.
+  const daily = (await q({ startDate: historyStart(today), endDate: today, dimensions: ['date'], rowLimit: 1000 }))
+    .map((r) => ({ date: r.keys[0]!, clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const end = daily.at(-1)?.date;
+  if (!end) throw new Error(`Search Console returned no data for ${gscProperty} in the last 16 months.`);
+  const { period, previous } = windows(end, GSC_WINDOW_DAYS);
+  log(`  ${daily.length} days of history · window ${period.start} – ${period.end}`);
+
+  const cur = { startDate: period.start, endDate: period.end };
+  const before = { startDate: previous.start, endDate: previous.end };
+  const [totalNow, totalBefore, queriesNow, queriesBefore, pagesNow, pagesBefore] = await Promise.all([
+    q(cur), q(before),
+    q({ ...cur, dimensions: ['query'], rowLimit: 1000 }), q({ ...before, dimensions: ['query'], rowLimit: 5000 }),
+    q({ ...cur, dimensions: ['page'], rowLimit: 250 }), q({ ...before, dimensions: ['page'], rowLimit: 1000 })
+  ]);
+  return {
+    property: gscProperty, fetchedAt: new Date().toISOString(), period, previous,
+    totals: { current: totalsOf(totalNow), previous: totalsOf(totalBefore) },
+    daily,
+    queries: withPrevious('query', queriesNow, queriesBefore),
+    pages: withPrevious('page', pagesNow, pagesBefore)
+  };
+}
+
 // ── Rankings ──
 const top10Counts = new Map<string, number>();
 const businessNames = new Map<string, string>();
@@ -295,6 +356,7 @@ async function runCompetitors(competitors: SeoBrand[], ranks: RankObservation[] 
 
 // ── Run ──
 const audit = await step('audit', runAudit);
+const searchConsole = await step('search-console', runSearchConsole);
 const rankings = await step('rankings', runRankings);
 const local = await step('local', runLocal);
 // Fresh discovery needs this run's rankings; otherwise keep the last known list.
@@ -322,6 +384,7 @@ const snapshot: SeoSnapshot = {
   keywords: keywords ?? prev?.keywords ?? [],
   competitors: profiles ?? prev?.competitors ?? [],
   audit: audit ?? prev?.audit ?? null,
+  searchConsole: searchConsole ?? prev?.searchConsole ?? null,
   spend: [...(prev?.spend ?? []).filter((s) => !(s.date === today && ranAreas.has(s.area))), ...spend].slice(-KEEP_REFRESHES * 6)
 };
 if (sandbox) {

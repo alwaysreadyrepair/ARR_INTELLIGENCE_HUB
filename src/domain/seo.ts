@@ -175,6 +175,45 @@ export interface SeoSpend {
   usd: number;
 }
 
+/** Clicks, impressions, click-through rate and average position, as Google Search Console reports them. `ctr` is a
+ *  0–1 ratio; `position` is the impression-weighted average (1 = top). */
+export interface GscMetrics {
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+}
+
+/** One search term (or one page) over the current period, with the same numbers for the period before. `prev` is
+ *  null when it had no impressions then. */
+export interface GscQueryRow extends GscMetrics {
+  query: string;
+  prev: GscMetrics | null;
+}
+export interface GscPageRow extends GscMetrics {
+  page: string;
+  prev: GscMetrics | null;
+}
+
+/** What Google measured for ARR's own site, from the Search Console API: real clicks and impressions, not
+ *  estimates. Google reports with a 2–3 day lag and keeps 16 months. Rare search terms are hidden for privacy, so the
+ *  query rows add up to less than `totals`. Replaced (not merged) on each refresh, since Google keeps the history. */
+export interface SearchConsoleData {
+  /** The Search Console property, e.g. `sc-domain:alwaysreadyrepair.com`. */
+  property: string;
+  fetchedAt: ISODateTime;
+  /** The comparison windows: the last `days` days with data, and the same number of days before. */
+  period: { start: ISODate; end: ISODate; days: number };
+  previous: { start: ISODate; end: ISODate };
+  /** Whole-site totals for each window, hidden search terms included. */
+  totals: { current: GscMetrics; previous: GscMetrics };
+  /** Whole-site numbers per day, up to 16 months, oldest first. */
+  daily: (GscMetrics & { date: ISODate })[];
+  /** Top search terms and pages in the current window, by clicks then impressions. */
+  queries: GscQueryRow[];
+  pages: GscPageRow[];
+}
+
 /** The whole SEO dataset, as the refresh script writes it and the snapshot repository reads it. History is kept
  *  inside: rankings, local and AI rows carry their own date. */
 export interface SeoSnapshot {
@@ -187,5 +226,7 @@ export interface SeoSnapshot {
   keywords: KeywordMetric[];
   competitors: CompetitorProfile[];
   audit: SiteAudit | null;
+  /** Missing in snapshots written before the Search Console step existed. */
+  searchConsole?: SearchConsoleData | null;
   spend: SeoSpend[];
 }

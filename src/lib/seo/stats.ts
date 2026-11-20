@@ -1,7 +1,7 @@
 /* Roll-ups for the SEO & AEO pages. Pure functions over repository rows, so they're unit-tested and identical in
  * mock and snapshot mode. Every figure is a count with its denominator; there is no blended "SEO score". */
 
-import type { AiAnswer, AiEngine, AuditIssue, AuditSeverity, LocalPackResult, RankObservation, SeoBrand, SiteAudit } from '../../domain/seo.ts';
+import type { AiAnswer, AiEngine, AuditIssue, AuditSeverity, LocalPackResult, RankObservation, SeoBrand, SiteAudit, GscMetrics, GscQueryRow, TrackedKeyword } from '../../domain/seo.ts';
 
 export const ENGINE_LABEL: Record<AiEngine, string> = {
   chatgpt: 'ChatGPT',
@@ -165,3 +165,64 @@ export const shortDate = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleStrin
 
 /** Percentage 0–100, rounded, for charts. 0 when there's no denominator. */
 export const pct100 = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
+
+// ── Search Console ──
+
+/** Lower case, "&" and "+" read as "and", punctuation dropped, single spaces. */
+const norm = (s: string) => ` ${s.toLowerCase().replace(/[&+]/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim()} `;
+
+/** A search for ARR by name: any of the brand's spellings, its domain stem, or "arr" next to an HVAC word. Clicks from
+ *  these come from people who already know us, so they say little about SEO. */
+export function isBrandQuery(query: string, brand: SeoBrand): boolean {
+  const q = norm(query);
+  const stem = brand.domain.split('.')[0]!;
+  if (q.replace(/ /g, '').includes(stem)) return true;
+  if (brand.names.some((name) => q.includes(norm(name)))) return true;
+  return / arr (heating|hvac|cooling|air|furnace|ac) /.test(q) || / always ready /.test(q);
+}
+
+/** Totals over rows, with the impression-weighted average position the way Search Console computes it. */
+export function sumMetrics(rows: GscMetrics[]): GscMetrics {
+  const clicks = rows.reduce((s, r) => s + r.clicks, 0);
+  const impressions = rows.reduce((s, r) => s + r.impressions, 0);
+  const position = impressions > 0 ? rows.reduce((s, r) => s + r.position * r.impressions, 0) / impressions : 0;
+  return { clicks, impressions, ctr: impressions > 0 ? clicks / impressions : 0, position };
+}
+
+/** Relative change, or null when there's nothing to compare against. */
+export const change = (now: number, before: number | null | undefined) => (before == null || before === 0 ? null : (now - before) / before);
+
+/** Daily rows rolled up to weeks starting Monday. Partial weeks at either end are dropped so the bars compare. */
+export function gscWeekly(daily: (GscMetrics & { date: string })[]): { week: string; clicks: number; impressions: number }[] {
+  const weeks = new Map<string, { clicks: number; impressions: number; days: number }>();
+  for (const d of daily) {
+    const t = Date.parse(`${d.date}T00:00:00Z`);
+    const monday = new Date(t - ((new Date(t).getUTCDay() + 6) % 7) * 86_400_000).toISOString().slice(0, 10);
+    const w = weeks.get(monday) ?? { clicks: 0, impressions: 0, days: 0 };
+    w.clicks += d.clicks;
+    w.impressions += d.impressions;
+    w.days++;
+    weeks.set(monday, w);
+  }
+  return [...weeks].filter(([, w]) => w.days === 7).sort(([a], [b]) => a.localeCompare(b)).map(([week, w]) => ({ week, clicks: w.clicks, impressions: w.impressions }));
+}
+
+/** Each tracked keyword's real search traffic: every search term containing all its words ("furnace repair" picks up
+ *  "furnace repair orland park" and "orland park furnace repair near me"). Brand searches are left out. */
+export function trackedKeywordTraffic(queries: GscQueryRow[], keywords: TrackedKeyword[], brand: SeoBrand) {
+  const open = queries.filter((q) => !isBrandQuery(q.query, brand)).map((q) => ({ q, words: new Set(norm(q.query).trim().split(' ')) }));
+  return keywords.map((k) => {
+    const want = norm(k.keyword).trim().split(' ');
+    const hits = open.filter((o) => want.every((w) => o.words.has(w))).map((o) => o.q);
+    return { keyword: k.keyword, service: k.service, terms: hits.length, ...sumMetrics(hits), prev: hits.some((h) => h.prev) ? sumMetrics(hits.flatMap((h) => (h.prev ? [h.prev] : []))) : null };
+  });
+}
+
+/** Non-brand search terms Google already shows us for, but low on page one or on page two (average position 4–20):
+ *  the closest to turning impressions into calls. Most impressions first. */
+export function gscOpportunities(queries: GscQueryRow[], brand: SeoBrand, limit = 15): GscQueryRow[] {
+  return queries
+    .filter((q) => q.position >= 4 && q.position <= 20 && q.impressions >= 20 && !isBrandQuery(q.query, brand))
+    .sort((a, b) => b.impressions - a.impressions)
+    .slice(0, limit);
+}
