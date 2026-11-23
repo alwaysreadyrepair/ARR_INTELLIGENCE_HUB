@@ -134,9 +134,9 @@ const arrow = (key: string) => (q.sort === key ? (q.dir === 'asc' ? ' â†‘' : ' â
   .filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); gap: 12px; align-items: end; }
   .wide { grid-column: span 2; }
   fieldset { border: 0; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; min-width: 0; }
-  legend { font-size: 12px; color: var(--text-2); padding: 0; margin-bottom: 4px; }
+  legend { font-size: var(--fs-xs); color: var(--text-2); padding: 0; margin-bottom: 4px; }
   .actions { display: flex; gap: 8px; }
-  .miss { color: var(--serious); font-size: 12px; }
+  .miss { color: var(--serious); font-size: var(--fs-xs); }
   .pager { display: flex; justify-content: space-between; align-items: center; padding: 12px 18px 4px; }
   .dis { opacity: 0.4; pointer-events: none; }
   table td:first-child, table th:first-child { padding-left: 18px; }

@@ -37,14 +37,15 @@ const [tone, icon, text] = MAP[value] ?? ['neutral', 'dot', value];
 <span class:list={['status', tone]}><Icon name={icon} size={12} />{label ?? text}</span>
 
 <style>
+  /* Tint-only pills: the fill is the status colour at 15%, the text and icon carry the full colour. */
   .status {
-    display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px 2px 6px; border-radius: 999px; font-size: 11.5px;
-    font-weight: 600; white-space: nowrap; border: 1px solid currentColor; line-height: 1.5;
+    display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 7px; border-radius: var(--radius-pill);
+    font-size: var(--fs-xs); font-weight: 500; white-space: nowrap; line-height: 1.5;
   }
-  .good { color: var(--good); background: rgba(63, 178, 127, 0.1); }
-  .warn { color: var(--warn); background: rgba(255, 204, 4, 0.08); }
-  .serious { color: var(--serious); background: rgba(240, 138, 36, 0.1); }
-  .critical { color: var(--critical); background: rgba(255, 77, 82, 0.1); }
+  .good { color: var(--good); background: var(--good-wash); }
+  .warn { color: var(--warn); background: var(--warn-wash); }
+  .serious { color: var(--serious); background: var(--serious-wash); }
+  .critical { color: var(--critical); background: var(--critical-wash); }
   .info { color: var(--accent); background: var(--accent-dim); }
-  .neutral { color: var(--text-2); background: rgba(255, 255, 255, 0.04); border-color: var(--border-strong); }
+  .neutral { color: var(--text-2); background: var(--surface-3); }
 </style>

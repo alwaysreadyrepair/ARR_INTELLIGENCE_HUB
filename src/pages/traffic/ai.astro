@@ -136,11 +136,11 @@ const win = (w: { from: string; to: string } | undefined) => (w ? `${shortDate(w
 </Shell>
 
 <style>
-  .path { font-size: 12px; overflow-wrap: anywhere; }
+  .path { font-size: var(--fs-sm); overflow-wrap: anywhere; }
   .pad { padding: 8px 18px 0; }
   .note { margin-top: 10px; }
   .dim td { color: var(--text-3); }
-  .purpose { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
+  .purpose { font-size: var(--fs-sm); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
   .purpose.user { color: var(--series-1); border-color: currentColor; }
   .purpose.ai-search { color: var(--series-3); border-color: currentColor; }
   .purpose.training { color: var(--text-2); }

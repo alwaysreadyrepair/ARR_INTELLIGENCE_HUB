@@ -149,12 +149,12 @@ const granularity = span > 31 ? 'week' : 'day';
 </Shell>
 
 <style>
-  .path { font-size: 12px; overflow-wrap: anywhere; }
+  .path { font-size: var(--fs-sm); overflow-wrap: anywhere; }
   .pad { padding: 8px 18px 0; }
   .pad-x { padding: 0 18px; }
   .facts { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 10px 0 0; }
   .facts div { display: flex; flex-direction: column; }
-  .facts dt { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
+  .facts dt { font-size: var(--fs-xs); color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
   .facts dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
   table td:first-child, table th:first-child { padding-left: 18px; }
 </style>

@@ -51,22 +51,27 @@ const jobList = hasData(jobs) ? jobs.data : [];
 const activeJobs = jobList.filter((j) => j.status === 'running' || j.status === 'queued');
 const failedJobs = jobList.filter((j) => j.status === 'failed' || j.status === 'partial');
 const s = hasData(stress) ? stress.data : null;
-const heatColors = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)', 'var(--series-5)', '#5d6b82'];
+const heatColors = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)', 'var(--series-5)', 'var(--series-other)'];
 ---
 <Shell title="Overview" question="What we know about the homes in ARR's territory, how complete and current it is, and what the weather is doing to demand.">
   <div class="grid cols-4">
     <Kpi label="Homes indexed" value={num(indexed)} detail={`${num(zips.filter((a) => a.homesIndexed > 0).length)} of ${zips.length} ZIPs · ${townships.filter((t) => t.homesIndexed > 0).length} of ${townships.length} townships`} href={href('/properties', url)} error={covErr} />
     <Kpi label="Coverage completeness" value={pct(ratio(indexed, expected))} detail={`${num(indexed)} of ~${num(expected)} residential parcels`} href={href('/coverage', url)} error={covErr} />
     <Kpi label="Refreshed in 30 days" value={num(refreshed30)} detail={`${pct(ratio(refreshed30, indexed))} of indexed homes`} href={href('/coverage', url)} error={covErr} />
-    <Kpi label="Weather stress (7 days)" value={s ? s.label : '—'} detail={s ? `${s.hdd} HDD / ${s.cdd} CDD vs normal ${s.hddNormal} / ${s.cddNormal} · ${s.area.name}` : undefined} href={href('/weather', url)} error={stress.status === 'error' ? stress.message : undefined} status={s ? (s.level === 'high' ? 'moderate' : undefined) : undefined} statusLabel="Above normal" />
-    <Kpi label="Median home age" value={p?.medianYearBuilt ? `${now.getFullYear() - p.medianYearBuilt} yrs` : '—'} detail={p?.medianYearBuilt ? `Median year built ${p.medianYearBuilt} · ${num(p.yearBuiltUnknown)} unknown` : undefined} href={href('/markets', url)} error={profile.status === 'error' ? profile.message : undefined} />
-    <Kpi label="Median square footage" value={p?.medianSqft ? num(p.medianSqft) : '—'} detail="Above-grade living area, assessor record" href={href('/markets', url)} error={profile.status === 'error' ? profile.message : undefined} />
-    <Kpi label="HVAC permit on record" value={p ? pct(ratio(p.withHvacPermit, p.homes)) : '—'} detail={p ? `${num(p.withHvacPermit)} homes. Cook permits only.` : undefined} href={href('/properties', url)} error={profile.status === 'error' ? profile.message : undefined} />
-    <Kpi label="Ingestion jobs" value={`${activeJobs.length} active`} detail={`${failedJobs.length} failed or partial · ${jobList.length} total`} href={href('/imports', url)} error={jobs.status === 'error' ? jobs.message : undefined} status={failedJobs.length ? 'failed' : undefined} statusLabel={`${failedJobs.length} need attention`} />
+    <Kpi label="Weather stress · 7 days" value={s ? (s.mode === 'cooling' ? `${num(s.cdd)} CDD` : `${num(s.hdd)} HDD`) : '—'}
+      detail={s ? (s.mode === 'cooling' ? `vs normal ${num(s.cddNormal)} · ${s.area.name}` : `vs normal ${num(s.hddNormal)} · ${s.area.name}`) : undefined}
+      href={href('/weather', url)} error={stress.status === 'error' ? stress.message : undefined}
+      status={s ? (s.level === 'high' ? 'moderate' : s.level === 'low' ? 'minor' : 'current') : undefined} statusLabel={s?.label} />
+  </div>
+  <div class="grid cols-4 secondary">
+    <Kpi size="sm" label="Median home age" value={p?.medianYearBuilt ? `${now.getFullYear() - p.medianYearBuilt} yrs` : '—'} detail={p?.medianYearBuilt ? `Built ${p.medianYearBuilt} · ${num(p.yearBuiltUnknown)} unknown` : undefined} href={href('/markets', url)} error={profile.status === 'error' ? profile.message : undefined} />
+    <Kpi size="sm" label="Median sq ft" value={p?.medianSqft ? num(p.medianSqft) : '—'} detail="Above-grade living area" href={href('/markets', url)} error={profile.status === 'error' ? profile.message : undefined} />
+    <Kpi size="sm" label="HVAC permit on record" value={p ? pct(ratio(p.withHvacPermit, p.homes)) : '—'} detail={p ? `${num(p.withHvacPermit)} homes · Cook permits only` : undefined} href={href('/properties', url)} error={profile.status === 'error' ? profile.message : undefined} />
+    <Kpi size="sm" label="Ingestion jobs" value={`${activeJobs.length} active`} detail={`${failedJobs.length} failed or partial · ${jobList.length} total`} href={href('/imports', url)} error={jobs.status === 'error' ? jobs.message : undefined} status={failedJobs.length ? 'failed' : undefined} statusLabel={`${failedJobs.length} need attention`} />
   </div>
 
   <div class="grid split">
-    <Panel title="Territory map" subtitle="Coverage completeness by ZIP. Click a tile for detail." result={coverage} source="Coverage index (assessor extracts)">
+    <Panel feature title="Territory map" subtitle="Coverage completeness by ZIP. Click a tile for detail." result={coverage} source="Coverage index (assessor extracts)">
       {hasData(coverage) && <TerritoryMap areas={coverage.data} />}
     </Panel>
     <Panel title="Housing profile" subtitle={p ? `${p.label} · ${num(p.homes)} homes` : undefined} result={profile} source={g.source ? SOURCE_LABEL[g.source] : 'County assessor records'} emptyText="No homes match these filters.">
@@ -84,7 +89,7 @@ const heatColors = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'va
           </div>
           <div>
             <h3 class="h">Heating type</h3>
-            <Share parts={p.byHeatingType.map((h, i) => ({ label: HEATING_LABEL[h.type] ?? h.type, value: h.homes, color: heatColors[i] ?? '#5d6b82' }))} />
+            <Share parts={p.byHeatingType.map((h, i) => ({ label: HEATING_LABEL[h.type] ?? h.type, value: h.homes, color: heatColors[i] ?? 'var(--series-other)' }))} />
           </div>
         </div>
       )}
@@ -152,9 +157,10 @@ const heatColors = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'va
 <style>
   .profile { display: grid; gap: 18px; }
   .profile > * { min-width: 0; }
-  .h { font-size: 12px; color: var(--text-2); font-weight: 600; margin-bottom: 8px; }
+  .h { font: 500 var(--fs-xs)/1.4 var(--mono); letter-spacing: 0.04em; color: var(--text-2); margin-bottom: 8px; }
+  .secondary { margin-top: -4px; }
   .list { list-style: none; margin: 0; padding: 0; display: grid; }
-  .list li { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .list li { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: var(--fs-sm); }
   .list li:last-child { border-bottom: 0; }
   .grow { flex: 1; min-width: 0; }
 </style>

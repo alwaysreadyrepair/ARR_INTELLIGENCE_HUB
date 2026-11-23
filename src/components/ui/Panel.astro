@@ -18,15 +18,17 @@ interface Props {
   emptyText?: string;
   class?: string;
   flush?: boolean;
+  /** Corner brackets: the page's one hero element (the territory map). */
+  feature?: boolean;
 }
-const { title, subtitle, result, source, emptyText = 'Nothing to show for these filters.', class: cls, flush } = Astro.props;
+const { title, subtitle, result, source, emptyText = 'Nothing to show for these filters.', class: cls, flush, feature } = Astro.props;
 const now = Astro.locals.now;
 const status = result?.status ?? 'ok';
 const asOf = result && 'asOf' in result ? result.asOf : null;
 const retry = new URL(Astro.url);
 retry.searchParams.delete('simulate');
 ---
-<section class:list={['panel', cls, { flush }]} aria-busy="false">
+<section class:list={['panel', cls, { flush, bracket: feature }]} aria-busy="false">
   <header class="ph">
     <div>
       <h2>{title}</h2>
@@ -48,11 +50,13 @@ retry.searchParams.delete('simulate');
 
   {status === 'empty' && (
     <div class="state empty">
-      <Icon name="layers" size={20} />
-      <div>
-        <p>{emptyText}</p>
-        <slot name="empty" />
+      <div class="ghosts" aria-hidden="true">
+        <div class="ghost"><u></u><i></i><b></b></div>
+        <div class="ghost"><u></u><i class="short"></i><b></b></div>
+        <div class="ghost"><u></u><i></i><b></b></div>
       </div>
+      <p>{emptyText}</p>
+      <slot name="empty" />
     </div>
   )}
 
@@ -68,20 +72,19 @@ retry.searchParams.delete('simulate');
   {(source || asOf) && status !== 'error' && (
     <footer class="pf">
       {source && <span>Source: {source}</span>}
-      {asOf && <span title={dateTime(asOf)}>As of {relative(asOf, now)}</span>}
+      {asOf && <span class="asof" title={dateTime(asOf)}>As of {relative(asOf, now)}</span>}
     </footer>
   )}
 </section>
 
 <style>
   .panel {
-    background: linear-gradient(180deg, rgba(27, 44, 72, 0.55), rgba(16, 27, 46, 0.92)), var(--surface-1);
-    border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px 12px; min-width: 0;
-    display: flex; flex-direction: column; gap: 12px; box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 10px 30px rgba(0, 0, 0, 0.25);
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 18px 12px; min-width: 0; display: flex; flex-direction: column; gap: 12px;
   }
   .ph { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-  .sub { color: var(--text-3); font-size: 12.5px; margin-top: 4px; }
-  .ph-actions { display: flex; gap: 8px; align-items: center; }
+  .sub { color: var(--text-3); font-size: var(--fs-sm); margin-top: 4px; }
+  .ph-actions { display: flex; gap: 8px; align-items: center; font-size: var(--fs-sm); }
   .body { min-width: 0; flex: 1; }
   .flush .body { margin: 0 -18px; }
   .state { display: flex; gap: 12px; align-items: flex-start; padding: 18px 4px; color: var(--text-2); flex: 1; }
@@ -91,7 +94,16 @@ retry.searchParams.delete('simulate');
   .error div { color: var(--text-2); }
   .error strong { color: var(--text-1); }
   .error a { display: inline-block; margin-top: 6px; }
-  .empty :global(svg) { color: var(--text-3); }
-  .stale { display: flex; gap: 6px; align-items: center; font-size: 12.5px; padding: 6px 10px; border-radius: 6px; color: var(--warn); background: rgba(255, 204, 4, 0.08); border: 1px solid rgba(255, 204, 4, 0.35); }
-  .pf { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 11.5px; color: var(--text-3); border-top: 1px solid var(--border); padding-top: 8px; margin-top: auto; }
+  /* Empty: faint ghost rows preview what will fill the space, then one sentence and an optional next step. */
+  .empty { flex-direction: column; align-items: center; text-align: center; gap: 12px; padding: 22px 12px; border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); }
+  .empty p { max-width: 46ch; color: var(--text-2); }
+  .ghosts { display: grid; gap: 6px; width: min(240px, 100%); opacity: 0.6; }
+  .ghost { height: 24px; border: 1px solid var(--border); border-radius: var(--radius-sm); display: flex; align-items: center; gap: 8px; padding: 0 8px; }
+  .ghost u { width: 10px; height: 10px; border-radius: 3px; background: var(--surface-3); }
+  .ghost i { flex: 1; height: 6px; border-radius: 999px; background: var(--surface-3); }
+  .ghost i.short { flex: 0 0 45%; margin-right: auto; }
+  .ghost b { width: 28px; height: 6px; border-radius: 999px; background: var(--surface-2); }
+  .stale { display: flex; gap: 6px; align-items: center; font-size: var(--fs-sm); padding: 6px 10px; border-radius: var(--radius-sm); color: var(--warn); background: var(--warn-wash); }
+  .pf { display: flex; justify-content: space-between; gap: 4px 12px; flex-wrap: wrap; font-size: var(--fs-xs); color: var(--text-3); border-top: 1px solid var(--border); padding-top: 8px; margin-top: auto; }
+  .asof { font-family: var(--mono); }
 </style>
