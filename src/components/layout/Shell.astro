@@ -3,6 +3,7 @@
  * banners, and the shared chart tooltip. Every page renders inside it. */
 import '../../styles/global.css';
 import { href, PROPERTY_SOURCES, RANGES, readGlobalFilters } from '../../lib/filters.ts';
+import { canShow } from '../../lib/access.ts';
 import Icon from '../ui/Icon.astro';
 
 interface Props {
@@ -15,10 +16,12 @@ interface Props {
 const { title, question, filters = { territory: true, range: true, source: true } } = Astro.props;
 const { url, locals } = Astro;
 const { user, repos } = locals;
+const kinds = { base: repos.kind, seo: repos.seo.kind, traffic: repos.traffic.kind };
+const shown = (path: string) => canShow(path, kinds, locals.hideMock);
 const g = readGlobalFilters(url);
 
 let territories: { id: string; name: string }[] = [];
-try {
+if (filters.territory) try {
   territories = (await repos.coverage.list({ kind: 'township' })).map((a) => ({ id: a.id, name: a.name }));
 } catch {
   // The filter bar should never take the page down. With no list, the territory menu offers "All" only.
@@ -75,10 +78,10 @@ const carry = [...url.searchParams].filter(([k]) => !['territory', 'range', 'sou
           <span><strong>ARR</strong> Intelligence Hub</span>
         </a>
         <nav aria-label="Sections">
-          {NAV_GROUPS.map((grp) => (
+          {NAV_GROUPS.filter((grp) => grp.items.some((n) => shown(n.path))).map((grp) => (
             <div class="grp">
               <span class="grp-label">{grp.label}</span>
-              {grp.items.map((n) => (
+              {grp.items.filter((n) => shown(n.path)).map((n) => (
                 <a href={href(n.path, url)} class:list={['nav', { on: isActive(n.path) }]} aria-current={isActive(n.path) ? 'page' : undefined}>
                   <Icon name={n.icon} size={16} />
                   <span>{n.label}</span>
@@ -92,6 +95,7 @@ const carry = [...url.searchParams].filter(([k]) => !['territory', 'range', 'sou
             <span class="avatar" aria-hidden="true">{user.name.slice(0, 1)}</span>
             <span><strong>{user.name}</strong><br /><span class="muted small">{user.role}</span></span>
           </div>
+          {!user.stub && <form method="post" action="/auth/sign-out"><button class="btn ghost" type="submit">Sign out</button></form>}
         </div>
       </aside>
 
@@ -102,7 +106,7 @@ const carry = [...url.searchParams].filter(([k]) => !['territory', 'range', 'sou
             {user.stub && <span><Icon name="lock" size={13} /> <strong>No authentication</strong><span class="why"> // dev stub. Don't deploy before Supabase Auth.</span></span>}
           </div>
         )}
-        <header class="topbar">
+        {(shown('/properties') || filters.territory || filters.range || filters.source) && <header class="topbar">
           <form class="filters" method="get" action={url.pathname} data-autosubmit>
             {carry.map(([k, v]) => <input type="hidden" name={k} value={v} />)}
             {filters.territory && (
@@ -130,12 +134,12 @@ const carry = [...url.searchParams].filter(([k]) => !['territory', 'range', 'sou
             )}
             <noscript><button class="btn" type="submit">Apply</button></noscript>
           </form>
-          <form class="search" method="get" action="/properties" role="search">
+          {shown('/properties') && <form class="search" method="get" action="/properties" role="search">
             <label class="visually-hidden" for="hub-search">Search properties by address or PIN</label>
             <Icon name="search" size={15} />
             <input id="hub-search" type="search" name="q" placeholder="Address or PIN" value={url.pathname === '/properties' ? (url.searchParams.get('q') ?? '') : ''} />
-          </form>
-        </header>
+          </form>}
+        </header>}
 
         <main id="main">
           <div class="page-head">
@@ -148,7 +152,7 @@ const carry = [...url.searchParams].filter(([k]) => !['territory', 'range', 'sou
           <slot />
         </main>
         <footer class="foot muted small">
-          <span>ARR Heating + Cooling · Intelligence Hub v0.1</span>
+          <span>ARR Heating + Cooling · Intelligence Hub v1.0</span>
           <span class="mono">SRC/{dataKind.toUpperCase()}</span>
         </footer>
       </div>
@@ -255,7 +259,7 @@ const carry = [...url.searchParams].filter(([k]) => !['territory', 'range', 'sou
   /* Phone and narrow tablet: the sidebar becomes a brand row plus one scrollable nav strip. */
   @media (max-width: 900px) {
     .app { grid-template-columns: minmax(0, 1fr); }
-    .side { position: static; height: auto; padding: 10px 0 0; gap: 6px; border-right: 0; border-bottom: 1px solid var(--border); overflow: visible; }
+    .side { position: relative; height: auto; padding: 10px 0 0; gap: 6px; border-right: 0; border-bottom: 1px solid var(--border); overflow: visible; }
     .brand { padding: 0 16px 4px; }
     nav { display: flex; gap: 2px; overflow-x: auto; padding: 0 12px 8px; scrollbar-width: none; scroll-snap-type: x proximity; }
     nav::-webkit-scrollbar { display: none; }
@@ -263,7 +267,8 @@ const carry = [...url.searchParams].filter(([k]) => !['territory', 'range', 'sou
     .grp-label { display: none; }
     .nav { flex: none; white-space: nowrap; scroll-snap-align: start; border-left: 0; border-bottom: 2px solid transparent; border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
     .nav.on { border-bottom-color: var(--accent); border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
-    .side-foot { display: none; }
+    .side-foot { position: absolute; top: 8px; right: 16px; margin: 0; padding: 0; border: 0; }
+    .who { display: none; }
     .classif { padding: 6px 16px; gap: 2px 16px; }
     .classif .why { display: none; }
     .topbar { position: static; padding: 10px 16px; }

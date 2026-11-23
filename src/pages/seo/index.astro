@@ -11,7 +11,7 @@ import { load, hasData, errorOf } from '../../lib/load.ts';
 import { href } from '../../lib/filters.ts';
 import { num, pct, usd } from '../../lib/format.ts';
 import { ratio } from '../../lib/stats.ts';
-import { auditIssues, ENGINE_COLOR, ENGINE_LABEL, ENGINE_SHORT, latest, localSummary, mentionTrend, pct100, rankChanges, rankTrend, sentence, shareOfVoice, shortDate } from '../../lib/seo/stats.ts';
+import { auditIssues, ENGINE_COLOR, ENGINE_SHORT, latest, localSummary, mentionTrend, pct100, rankChanges, rankTrend, sentence, shareOfVoice, shortDate } from '../../lib/seo/stats.ts';
 
 const { repos, now, simulate } = Astro.locals;
 const url = Astro.url;
@@ -91,7 +91,7 @@ const money = (n: number | null) => (n == null ? '—' : n < 10 ? `$${n.toFixed(
     </Panel>
   </div>
 
-  <Panel title="What the refreshes cost" subtitle="DataForSEO charges per call. These are DataForSEO's own per-task costs, recorded at refresh time." result={spend} source="DataForSEO task cost" emptyText="No paid calls recorded yet.">
+  <Panel title="What the refreshes cost" subtitle="DataForSEO charges per call; these are its own per-task costs, recorded at refresh time. AI answers asked directly through OpenAI or Anthropic are priced from their token use and searches." result={spend} source="DataForSEO task cost · OpenAI and Anthropic usage" emptyText="No paid calls recorded yet.">
     <p class="spend"><strong>{money(lastSpend)}</strong> <span class="muted">latest refresh</span> · <strong>{money(totalSpend)}</strong> <span class="muted">across {num(refreshes)} refresh{refreshes === 1 ? '' : 'es'}</span></p>
     <p class="muted small">The Hub never makes a paid call while you browse. Only <span class="mono">npm run seo:refresh</span> does, and <span class="mono">--dry-run</span> shows the call count first. The site crawl is free.</p>
   </Panel>

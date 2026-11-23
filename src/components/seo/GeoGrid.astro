@@ -1,0 +1,97 @@
+---
+/* Map-pack grid heatmap: one circle per search point, laid out as the grid is on the ground (north up), with ARR's
+ * Google Maps position inside. The tracked cities are labelled where they sit. No map tiles: the cities give enough
+ * bearing, and it stays a server-rendered SVG like every other chart in the Hub. Hover or focus a point for detail. */
+import type { GridResult, SeoMarket } from '../../domain/seo.ts';
+import { milesBetween } from '../../lib/seo/grid.ts';
+
+interface Props {
+  /** One keyword, one refresh. */
+  rows: GridResult[];
+  markets: SeoMarket[];
+  title: string;
+  /** Same keyword, the refresh before, for the change in each tooltip. */
+  prior?: GridResult[];
+}
+const { rows, markets, title, prior = [] } = Astro.props;
+
+const rowsN = Math.max(0, ...rows.map((r) => r.row)) + 1;
+const colsN = Math.max(0, ...rows.map((r) => r.col)) + 1;
+const CELL = 60, PAD = 34;
+const W = PAD * 2 + (colsN - 1) * CELL, H = PAD * 2 + (rowsN - 1) * CELL;
+const x = (col: number) => PAD + col * CELL;
+const y = (row: number) => PAD + row * CELL;
+
+// Project the city labels with the grid's own spacing in degrees, measured from its corner points.
+const at = (row: number, col: number) => rows.find((r) => r.row === row && r.col === col);
+const origin = at(0, 0);
+const east = at(0, colsN - 1), south = at(rowsN - 1, 0);
+const dLon = origin && east && colsN > 1 ? (east.lon - origin.lon) / (colsN - 1) : 0;
+const dLat = origin && south && rowsN > 1 ? (origin.lat - south.lat) / (rowsN - 1) : 0;
+const cities = origin && dLon && dLat
+  ? markets.map((m) => ({ name: m.city, cx: PAD + ((m.lon - origin.lon) / dLon) * CELL, cy: PAD + ((origin.lat - m.lat) / dLat) * CELL }))
+  : [];
+
+const neighbour = at(0, 1);
+const spacing = origin && neighbour ? Math.round(milesBetween(origin, neighbour) * 10) / 10 : null;
+
+const tone = (p: number | null) => (p == null ? 'none' : p <= 3 ? 'top3' : p <= 10 ? 'top10' : 'deep');
+const city = (id: string) => markets.find((m) => m.id === id)?.city ?? id;
+const before = (r: GridResult) => prior.find((p) => p.row === r.row && p.col === r.col)?.position;
+const tipOf = (r: GridResult) => {
+  const was = before(r);
+  const move = was === undefined ? '' : was === r.position ? ' · no change' : ` · was ${was ?? 'not in the first 20'}`;
+  return `Near ${city(r.marketId)}\nARR: ${r.position == null ? 'not in the first 20' : `position ${r.position}`}${move}\nListed first: ${r.leader?.title ?? '—'}`;
+};
+---
+<figure class="geo">
+  <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={title}>
+    {rows.map((r) => (
+      <g class:list={['pt', tone(r.position)]} data-tip={tipOf(r)} tabindex="0">
+        <circle cx={x(r.col)} cy={y(r.row)} r={CELL * 0.36} />
+        <text x={x(r.col)} y={y(r.row)} dy="0.35em">{r.position ?? '–'}</text>
+      </g>
+    ))}
+    {cities.map((c) => (
+      <g class="city" aria-hidden="true">
+        <path d={`M${c.cx},${c.cy - 4}l4,4l-4,4l-4,-4z`} />
+        <text x={c.cx > W * 0.6 ? c.cx - 7 : c.cx + 7} y={c.cy} dy="0.35em" text-anchor={c.cx > W * 0.6 ? 'end' : 'start'}>{c.name}</text>
+      </g>
+    ))}
+    <text class="north" x={W - 10} y={14} text-anchor="end" aria-hidden="true">N ↑</text>
+  </svg>
+  <figcaption class="key small">
+    <span><i class="sw top3"></i>Top 3 (map pack)</span>
+    <span><i class="sw top10"></i>4–10</span>
+    <span><i class="sw deep"></i>11–20</span>
+    <span><i class="sw none"></i>Not in the first 20</span>
+    {spacing && <span class="muted">Points {spacing} mi apart</span>}
+  </figcaption>
+</figure>
+
+<style>
+  .geo { margin: 0; display: grid; gap: 10px; }
+  svg { width: 100%; max-width: 440px; height: auto; display: block; margin: 0 auto; }
+  .pt { cursor: default; outline: none; }
+  .pt circle { stroke-width: 1.5; }
+  .pt text { text-anchor: middle; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; pointer-events: none; }
+  .top3 circle { fill: var(--accent); stroke: var(--accent); }
+  .top3 text { fill: #04121f; }
+  .top10 circle { fill: rgba(3, 188, 230, 0.34); stroke: rgba(3, 188, 230, 0.6); }
+  .top10 text { fill: var(--text-1); }
+  .deep circle { fill: rgba(3, 188, 230, 0.1); stroke: rgba(3, 188, 230, 0.3); }
+  .deep text { fill: var(--text-2); }
+  .none circle { fill: transparent; stroke: var(--border); stroke-dasharray: 3 3; }
+  .none text { fill: var(--text-3); }
+  .pt:hover circle, .pt:focus-visible circle { stroke: var(--text-1); stroke-width: 2.5; }
+  .city path { fill: var(--text-1); stroke: var(--surface-1); stroke-width: 1.5; }
+  .city text { font-size: 11px; font-weight: 600; fill: var(--text-1); paint-order: stroke; stroke: var(--surface-1); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+  .north { font-size: 10.5px; fill: var(--text-3); font-weight: 600; }
+  .key { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; color: var(--text-2); }
+  .key span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+  .sw.top3 { background: var(--accent); }
+  .sw.top10 { background: rgba(3, 188, 230, 0.34); }
+  .sw.deep { background: rgba(3, 188, 230, 0.1); box-shadow: inset 0 0 0 1px rgba(3, 188, 230, 0.3); }
+  .sw.none { box-shadow: inset 0 0 0 1px var(--border); }
+</style>

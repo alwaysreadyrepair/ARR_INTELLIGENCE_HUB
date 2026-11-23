@@ -10,9 +10,10 @@ ARR Heating + Cooling's internal property, market, weather and ingestion dashboa
 - What should we download or refresh next?
 - Where does ARR show up when homeowners ask Google, Google Maps and AI assistants for HVAC help?
 
-**Status: v1 shell.** Every page runs on typed **mock data** behind repository interfaces. There is **no production
-authentication** and **no database write**. A yellow banner on every page says both. Don't deploy it anywhere reachable
-until Supabase Auth is in (see [Connecting Supabase](#connecting-supabase)).
+**Status: 1.0, not deployed.** SEO & AEO and Web Traffic read real snapshots. Everything else is still typed **mock
+data**, which a build refuses to show. Builds require Supabase sign-in; only `astro dev` uses a stub user. Nothing writes
+to a database. See [docs/RUNBOOK.md](docs/RUNBOOK.md), [docs/USER-GUIDE.md](docs/USER-GUIDE.md) and
+[docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 This is ARR's central internal tool hub, kept in its own repository. It used to live in the pricing app's monorepo
 (`alwaysreadyrepairhvac/arr_instant_pricing`, `apps/intelligence-hub`) and shares no code with it. The pricing app
@@ -55,8 +56,9 @@ months old, and Will County has never been ingested.
 | `/projects` | API consumers: datasets, territories, key prefix, usage, rate limits, audit history |
 | `/seo` | SEO & AEO overview: AI answers naming ARR, Google top-3 share, map-pack share, site issues, biggest rank moves, refresh cost |
 | `/seo/ai` | AEO: each prompt × engine (ChatGPT, Perplexity, Gemini, Google AI Overview): named / cited / not named, the answers, weekly history, who gets named instead, which sites AI cites |
+| `/seo/search-console` | Google Search Console: real clicks, impressions, click rate and position for the last 28 days vs the 28 before; weekly clicks over 16 months; brand vs non-brand vs hidden; tracked keywords measured; closest wins (position 4–20); top search terms and pages |
 | `/seo/rankings` | Google organic position per keyword × city, change since last refresh, who ranks above us, SERP features; filter by city and service |
-| `/seo/local` | Google Maps position per keyword × city, and the three businesses holding the map pack |
+| `/seo/local` | Map-pack grid: a heatmap of ARR's Google Maps position from evenly spaced points over the whole service area, who is listed first, top-3 points per refresh and per city; plus position from each city centre and the three businesses holding the map pack |
 | `/seo/keywords` | Chicago-market search volume, CPC, competition and 12-month seasonality for the tracked keywords |
 | `/seo/competitors` | Discovered competitors: appearances in our searches, keywords ranked, est. traffic, referring domains |
 | `/seo/audit` | Crawl of alwaysreadyrepair.com: findings by severity (AEO-tagged), AI-crawler access, llms.txt, schema coverage, per-page detail |
@@ -158,8 +160,9 @@ property data is still mock:
 ```bash
 npm run seo:refresh -- --dry-run      # steps, paid call count, rough cost (~$1.80 at list prices)
 npm run seo:refresh -- --only=audit   # the free site crawl only, no key needed
+npm run seo:refresh -- --only=search-console   # Google Search Console only, free; needs GSC_SERVICE_ACCOUNT
 npm run seo:refresh -- --sandbox      # DataForSEO's free sandbox: checks credentials and request shapes
-npm run seo:refresh                   # everything: audit, rankings, local, ai, keywords, competitors
+npm run seo:refresh                   # everything: audit, search-console, rankings, local, grid, ai, keywords, competitors
 npm run seo:load                      # copy .seo/snapshot.json into the local SEO KV
 ```
 
@@ -172,12 +175,28 @@ and the previous refresh's data for it is kept. The snapshot keeps the last 26 r
 - `audit` (free): robots.txt (AI crawlers blocked?), sitemap, `/llms.txt`, then every sitemap page: title, meta
   description, H1, word count, canonical, noindex, JSON-LD types, FAQ content without FAQPage schema, images without
   alt text, duplicate titles. Findings that matter mostly to AI engines are tagged AEO.
+- `search-console` (free): Google Search Console for `GSC_PROPERTY` (`sc-domain:alwaysreadyrepair.com` by default):
+  16 months of clicks and impressions by day, plus search terms and pages for the last 28 days and the 28 before.
+  Setup, once: create a service account in Google Cloud, enable the Search Console API, download its JSON key, and
+  add the account's `client_email` as a user (Restricted is enough) on the property in Search Console. Then set
+  `GSC_SERVICE_ACCOUNT` in `.env` to the key's path (or its JSON). Without it a full refresh skips this step and
+  keeps the last data; `GSC_PROPERTY` overrides the property, e.g. `https://www.alwaysreadyrepair.com/` for a
+  URL-prefix property. Unlike the other steps it isn't merged with history, because Google keeps 16 months itself.
 - `rankings`: Google organic for every keyword × city, searched from that city, `RANK_DEPTH` results deep. It also
   records SERP features and whether we're in the local pack.
 - `local`: Google Maps from each city centre for `LOCAL_KEYWORDS`.
+- `grid`: Google Maps from every point of one grid over the service area (`GRID` in `targets.ts`: the cities'
+  bounding box plus a margin, 2 miles apart, map zoom 14), for `GRID.keywords`. With today's cities that's 54
+  points × 2 keywords = 108 calls, about $0.43 a run. One shared grid, so neighbouring cities don't pay twice.
 - `ai`: every prompt to ChatGPT, Perplexity and Gemini (DataForSEO LLM Responses, web search on) and as a Google
   search for its AI Overview. Each answer is matched for ARR and competitor names and citations. Model names come
   from DataForSEO's free catalog first, because an unknown model name fails as a *billed* task.
+  Claude is tracked too. With `OPENAI_API_KEY` in `.env`, ChatGPT is asked straight through OpenAI's Responses API,
+  and with `ANTHROPIC_API_KEY` Claude is asked straight through the Anthropic API (Claude Opus 5.5, web search,
+  server-side fallback to another Claude model if it declines). Both place the web search in Orland Park; models
+  are in `AI_DIRECT` or `OPENAI_MODEL` / `ANTHROPIC_MODEL`. Each answer's cost is priced from its tokens and
+  searches at the list prices in `AI_DIRECT`. The answer card on `/seo/ai` says
+  which API and model answered.
 - `keywords`: Google Ads volume, CPC and monthly history for the Chicago market.
 - `competitors`: the domains that show up most in our top-10 results, minus directories (`NOT_COMPETITORS`), profiled
   with DataForSEO Labs and the backlinks index.
@@ -244,8 +263,8 @@ The swap is one directory plus the factory. Pages and components don't change.
    key (`sb_secret_…`, the old `service_role`) out of the Worker.
 4. **Wire the factory.** In `repositories/index.ts`, return the Supabase repositories when `DATA_SOURCE=supabase`.
    Until then, that setting makes every panel show an error rather than quietly falling back to mock numbers.
-5. **Auth.** Replace `DEV_USER` in `src/middleware.ts` with a Supabase Auth session check (redirect to sign-in when
-   missing) and drop the "No authentication" banner, which keys off `user.stub`.
+5. **Auth: done.** `src/middleware.ts` verifies the Supabase token on every request (`src/lib/auth.ts`,
+   `src/lib/access.ts`). Roles come from `app_metadata.hub_role`.
 6. **Mutations come last**, each behind auth and an `audit_events` insert: start/retry/cancel import, resolve/ignore
    quality issue, rotate project key. The buttons exist today and are disabled.
 7. Run the mock repository tests against the Supabase repositories as a contract test, then point `DATA_SOURCE` at

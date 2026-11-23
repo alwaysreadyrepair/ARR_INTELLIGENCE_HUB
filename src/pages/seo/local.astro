@@ -4,11 +4,14 @@ import SeoTabs from '../../components/seo/SeoTabs.astro';
 import Pos from '../../components/seo/Pos.astro';
 import Panel from '../../components/ui/Panel.astro';
 import Kpi from '../../components/ui/Kpi.astro';
+import GeoGrid from '../../components/seo/GeoGrid.astro';
+import BarList from '../../components/charts/BarList.astro';
+import Columns from '../../components/charts/Columns.astro';
 import { load, hasData, errorOf } from '../../lib/load.ts';
 import { href } from '../../lib/filters.ts';
 import { num, pct } from '../../lib/format.ts';
 import { ratio } from '../../lib/stats.ts';
-import { latest, localSummary, previous, sentence, shortDate } from '../../lib/seo/stats.ts';
+import { gridByCity, gridLeaders, gridSummary, gridTrend, latest, localSummary, previous, sentence, shortDate } from '../../lib/seo/stats.ts';
 
 const { repos, now, simulate } = Astro.locals;
 const url = Astro.url;
@@ -17,9 +20,10 @@ const opts = { simulate, now };
 const takenAt = await seo.takenAt().catch(() => null);
 const asOf = () => takenAt;
 
-const [targets, local] = await Promise.all([
+const [targets, local, grid] = await Promise.all([
   load(() => seo.targets(), opts),
-  load(() => seo.local(), { ...opts, asOf, staleKind: 'seo' })
+  load(() => seo.local(), { ...opts, asOf, staleKind: 'seo' }),
+  load(() => seo.grid(), { ...opts, asOf, staleKind: 'seo' })
 ]);
 const t = hasData(targets) ? targets.data : null;
 const rows = hasData(local) ? local.data : [];
@@ -34,10 +38,61 @@ const delta = (k: string, m: string) => {
   const a = cell(k, m)?.position, b = prior.find((r) => r.keyword === k && r.marketId === m)?.position;
   return a != null && b != null ? b - a : null;
 };
+
+// ── Grid: one keyword at a time (?gk=), latest refresh against the one before. ──
+const gridRows = hasData(grid) ? grid.data : [];
+const gridKeywords = [...new Set(gridRows.map((r) => r.keyword))];
+const gk = gridKeywords.find((k) => k === url.searchParams.get('gk')) ?? gridKeywords[0];
+const gkRows = gridRows.filter((r) => r.keyword === gk);
+const gNow = latest(gkRows);
+const gPrior = previous(gkRows).rows;
+const gSum = gridSummary(gkRows);
+const gPrev = gPrior.length ? gridSummary(gPrior) : null;
+const leaders = t ? gridLeaders(gkRows, t.domain) : [];
+const gTrend = gridTrend(gkRows);
+const byCity = gridByCity(gkRows);
+
 const city = (id: string) => t?.markets.find((m) => m.id === id)?.city ?? id;
 ---
-<Shell title="Google Maps (map pack)" question="Whether ARR is one of the three businesses Google shows on the map when someone in each city searches for HVAC help." filters={{}}>
+<Shell title="Google Maps (map pack)" question="Whether ARR is one of the three businesses Google shows on the map when someone searches for HVAC help, across the whole service area and from each city centre." filters={{}}>
   <SeoTabs />
+
+  <div class="grid split">
+    <Panel title="Map pack across the service area" subtitle={gk ? `"${sentence(gk)}" searched on Google Maps from every point of a grid over the service area${gNow.date ? `, week of ${shortDate(gNow.date)}` : ''}. The number is ARR's position from that spot.` : 'Google Maps searched from every point of a grid over the service area.'} result={grid} source="DataForSEO SERP (Google Maps, grid coordinates)" emptyText="No grid checks yet. The grid step of npm run seo:refresh runs them.">
+      {gridKeywords.length > 1 && (
+        <nav slot="actions" class="seg small" aria-label="Grid keyword">
+          {gridKeywords.map((k) => <a href={href('/seo/local', url, { gk: k })} class:list={{ on: k === gk }} aria-current={k === gk ? 'true' : undefined}>{sentence(k)}</a>)}
+        </nav>
+      )}
+      <dl class="gsum">
+        <div><dt>In the map pack</dt><dd>{num(gSum.top3)} of {num(gSum.points)} points{gPrev && gPrev.top3 !== gSum.top3 && <span class:list={['mv', gSum.top3 > gPrev.top3 ? 'up' : 'down']}>{gSum.top3 > gPrev.top3 ? '▲' : '▼'}{Math.abs(gSum.top3 - gPrev.top3)}</span>}</dd></div>
+        <div><dt>Not in the first 20</dt><dd>{num(gSum.points - gSum.listed)} points</dd></div>
+        <div><dt>Average position</dt><dd title="Points where ARR isn't listed count as 21">{gSum.avgPosition == null ? '—' : gSum.avgPosition.toFixed(1)}</dd></div>
+      </dl>
+      {t && gNow.rows.length > 0 && <GeoGrid rows={gNow.rows} prior={gPrior} markets={t.markets} title={`ARR's Google Maps position for "${gk}" at each grid point`} />}
+    </Panel>
+
+    <div class="stack">
+      <Panel title="Listed first on the map" subtitle="Who Google puts at the top, by number of grid points. Latest refresh." result={grid} source="DataForSEO SERP (Google Maps)" emptyText="No grid checks yet.">
+        <BarList shareOf={gSum.points || undefined} rows={leaders.map((l) => ({ label: l.own ? `${l.name} (us)` : l.name, value: l.points, detail: l.domain ?? 'no website' }))} />
+      </Panel>
+      <Panel title="Grid points in the map pack" subtitle="Points where ARR is in the top 3, per weekly refresh." result={grid} source="DataForSEO SERP (Google Maps)" emptyText="No grid checks yet.">
+        {gTrend.length > 0 && (
+          <Columns title={`Grid points with ARR in the top 3 for "${gk}", by refresh`} height={150} unit=" points"
+            buckets={gTrend.map((d) => ({ label: shortDate(d.date), tip: `Week of ${shortDate(d.date)} · ${num(d.points)} points` }))}
+            series={[{ name: 'Top 3', color: 'var(--series-1)', values: gTrend.map((d) => d.top3) }]} />
+        )}
+      </Panel>
+      <Panel title="By nearest city" subtitle="Grid points closest to each tracked city. Latest refresh." result={grid} source="DataForSEO SERP (Google Maps)" flush emptyText="No grid checks yet.">
+        <div class="table-wrap"><table>
+          <thead><tr><th>City</th><th class="num">In the map pack</th></tr></thead>
+          <tbody>{(t?.markets ?? []).map((m) => { const c = byCity.find((b) => b.marketId === m.id); return (
+            <tr><td>{m.city}</td><td class="num">{c ? <>{num(c.top3)} <span class="muted">of {num(c.points)}</span></> : <span class="muted">—</span>}</td></tr>
+          ); })}</tbody>
+        </table></div>
+      </Panel>
+    </div>
+  </div>
 
   <div class="grid cols-3">
     <Kpi label="In the map pack (top 3)" value={hasData(local) ? pct(ratio(summary.top3, summary.checks)) : '—'} detail={hasData(local) ? `${num(summary.top3)} of ${num(summary.checks)} keyword × city searches` : undefined} error={errorOf(local)} />
@@ -45,7 +100,7 @@ const city = (id: string) => t?.markets.find((m) => m.id === id)?.city ?? id;
     <Kpi label="Cities checked" value={t ? num(t.markets.length) : '—'} detail={date ? `Latest refresh: week of ${shortDate(date)}` : undefined} error={errorOf(targets)} />
   </div>
 
-  <Panel title="Map position by city" subtitle="Searched from each city's centre on Google Maps. Positions 1–3 are the map pack on the regular results page. Pick a cell to see who holds the top three." result={local} source="DataForSEO SERP (Google Maps, city-centre coordinates)" flush emptyText="No Maps checks yet. They run when LOCAL_KEYWORDS is set in the targets.">
+  <Panel title="Map position from each city centre" subtitle="Searched from each city's centre on Google Maps. Positions 1–3 are the map pack on the regular results page. Pick a cell to see who holds the top three." result={local} source="DataForSEO SERP (Google Maps, city-centre coordinates)" flush emptyText="No Maps checks yet. They run when LOCAL_KEYWORDS is set in the targets.">
     <div class="table-wrap"><table>
       <thead><tr><th>Keyword</th>{t?.markets.map((m) => <th class="num">{m.city}</th>)}</tr></thead>
       <tbody>{keywords.map((k) => (
@@ -70,7 +125,7 @@ const city = (id: string) => t?.markets.find((m) => m.id === id)?.city ?? id;
     </Panel>
   )}
 
-  <p class="muted small">Map-pack placement depends on distance, so a city far from the shop can rank lower with no change on our side. Review count and rating are the levers ARR controls most directly.</p>
+  <p class="muted small">Map-pack placement depends on distance from the searcher, which is why the grid fades away from the shop: a point far out can rank lower with no change on our side. The grid uses map zoom 14, roughly what a phone shows. Review count and rating are the levers ARR controls most directly.</p>
 </Shell>
 
 <style>
@@ -80,4 +135,16 @@ const city = (id: string) => t?.markets.find((m) => m.id === id)?.city ?? id;
   .three { margin: 0; padding-left: 22px; display: grid; gap: 10px; }
   .three li { display: grid; gap: 2px; }
   .three li.us strong { color: var(--accent); }
+  .stack { display: grid; gap: 16px; align-content: start; min-width: 0; }
+  .gsum { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 0 0 14px; }
+  .gsum div { display: grid; gap: 2px; }
+  .gsum dt { font-size: 11.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  .gsum dd { margin: 0; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .mv { margin-left: 6px; font-size: 11px; font-weight: 600; }
+  .mv.up { color: var(--good); }
+  .mv.down { color: var(--serious); }
+  .seg { display: inline-flex; gap: 2px; border: 1px solid var(--border); border-radius: 7px; padding: 2px; }
+  .seg a { padding: 2px 9px; border-radius: 5px; color: var(--text-2); }
+  .seg a:hover { text-decoration: none; color: var(--text-1); }
+  .seg a.on { background: var(--accent-dim); color: var(--text-1); }
 </style>

@@ -55,11 +55,11 @@
   --good: #3fb27f;
   --warn: #ffcc04;
   --serious: #f08a24;
-  --critical: #ff4d52;
+  --critical: #ff6f73;
   --good-wash: rgba(63, 178, 127, 0.15);
   --warn-wash: rgba(255, 204, 4, 0.13);
   --serious-wash: rgba(240, 138, 36, 0.15);
-  --critical-wash: rgba(255, 77, 82, 0.15);
+  --critical-wash: rgba(255, 111, 115, 0.15);
 
   /* Type: five sizes. Mono labels are the 12px step in IBM Plex Mono, uppercase. */
   --fs-xs: 12px;   /* labels, pills, table heads, captions */

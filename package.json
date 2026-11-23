@@ -1,6 +1,6 @@
 {
   "name": "arr-intelligence-hub",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,9 @@
     "seo:refresh": "node --experimental-strip-types --no-warnings=ExperimentalWarning --env-file-if-exists=.env scripts/seo-refresh.ts",
     "seo:load": "wrangler kv key put seo:snapshot --path .seo/snapshot.json --binding SEO --local",
     "traffic:refresh": "node --experimental-strip-types --no-warnings=ExperimentalWarning --env-file-if-exists=.env scripts/traffic-refresh.ts",
-    "traffic:load": "wrangler kv key put traffic:snapshot --path .traffic/snapshot.json --binding TRAFFIC --local"
+    "traffic:load": "wrangler kv key put traffic:snapshot --path .traffic/snapshot.json --binding TRAFFIC --local",
+    "deploy": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/deploy.ts",
+    "snapshot": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/snapshot.ts"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.4.9",
@@ -22,8 +24,10 @@
     "astro": "^7.4.13"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^1.12.0",
     "@astrojs/check": "^0.9.12",
     "@types/node": "^22.20.4",
+    "jose": "^6.2.18",
     "typescript": "^5.9.3",
     "wrangler": "^4.166.0"
   },

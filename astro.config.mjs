@@ -4,6 +4,9 @@ import cloudflare from '@astrojs/cloudflare';
 // Internal app — no Webflow mount, no base path, no webflow.json (so Webflow Cloud never picks it up; the pricing
 // app's apps/pricing/webflow.json is the only one in the repo). Server-rendered so filters are plain GET params
 // and data access stays on the server, where the Supabase repositories will hold their keys.
+// A non-production NODE_ENV would build with import.meta.env.DEV on, which is what enables the stub user.
+if (process.argv.includes('build') && process.env.NODE_ENV && process.env.NODE_ENV !== 'production') throw new Error(`Refusing to build with NODE_ENV=${process.env.NODE_ENV}.`);
+
 export default defineConfig({
   output: 'server',
   // Adapter 13+ deploys a Worker (Pages support was removed) and runs `astro dev` inside workerd, so bindings and

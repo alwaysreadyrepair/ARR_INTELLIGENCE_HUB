@@ -1,0 +1,180 @@
+---
+import Shell from '../../components/layout/Shell.astro';
+import SeoTabs from '../../components/seo/SeoTabs.astro';
+import Panel from '../../components/ui/Panel.astro';
+import Kpi from '../../components/ui/Kpi.astro';
+import Columns from '../../components/charts/Columns.astro';
+import BarList from '../../components/charts/BarList.astro';
+import { httpUrl } from '../../lib/url.ts';
+import { load, hasData, errorOf } from '../../lib/load.ts';
+import { enumParam, href } from '../../lib/filters.ts';
+import { date, num, pct } from '../../lib/format.ts';
+import { change, gscOpportunities, gscWeekly, isBrandQuery, sentence, SERVICE_LABEL, shortDate, sumMetrics, trackedKeywordTraffic } from '../../lib/seo/stats.ts';
+import type { GscMetrics } from '../../domain/seo.ts';
+
+const { repos, now, simulate } = Astro.locals;
+const url = Astro.url;
+const seo = repos.seo;
+const opts = { simulate, now };
+
+const [targets, gsc] = await Promise.all([
+  load(() => seo.targets(), opts),
+  load(() => seo.searchConsole(), { ...opts, asOf: (d) => d?.fetchedAt ?? null, staleKind: 'seo' })
+]);
+const t = hasData(targets) ? targets.data : null;
+const d = hasData(gsc) ? gsc.data : null;
+
+const KINDS = ['non-brand', 'brand'] as const;
+const kind = enumParam(url, 'kind', KINDS);
+const brand = t?.brand;
+const isBrand = (q: string) => (brand ? isBrandQuery(q, brand) : false);
+
+const cur = d?.totals.current;
+const prev = d?.totals.previous;
+const weekly = d ? gscWeekly(d.daily) : [];
+const brandRows = d ? d.queries.filter((q) => isBrand(q.query)) : [];
+const openRows = d ? d.queries.filter((q) => !isBrand(q.query)) : [];
+const brandClicks = sumMetrics(brandRows).clicks;
+const openClicks = sumMetrics(openRows).clicks;
+// Google hides rare search terms, so the named rows add up to less than the site total.
+const hiddenClicks = cur ? Math.max(0, cur.clicks - brandClicks - openClicks) : 0;
+const prevOpenClicks = sumMetrics(openRows.flatMap((q) => (q.prev ? [q.prev] : []))).clicks;
+const tracked = d && t ? trackedKeywordTraffic(d.queries, t.keywords, t.brand) : [];
+const wins = d && brand ? gscOpportunities(d.queries, brand) : [];
+const shown = (kind === 'brand' ? brandRows : kind === 'non-brand' ? openRows : d?.queries ?? []).slice(0, 50);
+const pages = (d?.pages ?? []).slice(0, 25);
+
+const window = d ? `${date(d.period.start)} – ${date(d.period.end)}` : '';
+const vs = d ? `vs the ${d.period.days} days before` : '';
+const signed = (r: number | null) => (r == null ? '' : `${r > 0 ? '+' : r < 0 ? '−' : '±'}${pct(Math.abs(r))}`);
+/** Axis label for a 16-month chart, where a bare "Jan 26" would be ambiguous: "Jan '26". */
+const monthYear = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' }).replace(' ', " '");
+const posStr = (p: number) => (p ? p.toFixed(1) : '—');
+const pathOf = (u: string) => u.replace(/^https?:\/\/[^/]+/, '') || '/';
+/** Clicks change for a row: ▲/▼ count since the previous window, or "new". */
+const clickMove = (m: GscMetrics & { prev: GscMetrics | null }) => (m.prev == null ? { cls: 'new', text: 'new' } : m.clicks === m.prev.clicks ? null : { cls: m.clicks > m.prev.clicks ? 'up' : 'down', text: `${m.clicks > m.prev.clicks ? '▲' : '▼'}${num(Math.abs(m.clicks - m.prev.clicks))}` });
+/** Position change: a lower number is better, so moving from 9.4 to 6.1 is up. */
+const posMove = (m: GscMetrics & { prev: GscMetrics | null }) => {
+  if (!m.prev || !m.prev.position || !m.position) return null;
+  const delta = m.prev.position - m.position;
+  return Math.abs(delta) < 0.5 ? null : { cls: delta > 0 ? 'up' : 'down', text: `${delta > 0 ? '▲' : '▼'}${Math.abs(delta).toFixed(1)}` };
+};
+const source = d ? `Google Search Console · ${d.property}` : 'Google Search Console';
+const clickChange = cur && prev ? change(cur.clicks, prev.clicks) : null;
+const imprChange = cur && prev ? change(cur.impressions, prev.impressions) : null;
+const ctrChange = cur && prev ? change(cur.ctr, prev.ctr) : null;
+const posDelta = cur && prev && prev.position ? prev.position - cur.position : null;
+---
+<Shell title="Search Console" question="What Google actually measured for alwaysreadyrepair.com: how often we showed up in search, how often people clicked, and for which searches." filters={{}}>
+  <SeoTabs />
+
+  <div class="grid cols-4">
+    <Kpi label="Clicks from Google" value={cur ? num(cur.clicks) : '—'} detail={cur ? `${window} · ${signed(clickChange) || 'no change'} ${vs}` : undefined} error={errorOf(gsc)} />
+    <Kpi label="Non-brand clicks" value={d ? num(openClicks) : '—'} detail={d ? `Searches that don't name ARR · ${signed(change(openClicks, prevOpenClicks)) || 'no change'} ${vs}` : undefined} error={errorOf(gsc)} />
+    <Kpi label="Impressions" value={cur ? num(cur.impressions) : '—'} detail={cur ? `Times we appeared in results · ${signed(imprChange) || 'no change'} ${vs}` : undefined} error={errorOf(gsc)} />
+    <Kpi label="Average position" value={cur ? posStr(cur.position) : '—'} detail={cur ? `Click rate ${pct(cur.ctr)} (${signed(ctrChange) || 'no change'}) · position ${posDelta == null || Math.abs(posDelta) < 0.1 ? 'flat' : `${posDelta > 0 ? 'up' : 'down'} ${Math.abs(posDelta).toFixed(1)}`}` : undefined} error={errorOf(gsc)} />
+  </div>
+
+  <div class="grid split">
+    <Panel title="Clicks from Google by week" subtitle="Every search, brand and non-brand, as Search Console counts it. Up to 16 months, full weeks only." result={gsc} source={source} emptyText="No Search Console data yet.">
+      <p slot="empty" class="muted small">Set <span class="mono">GSC_SERVICE_ACCOUNT</span> and run <span class="mono">npm run seo:refresh -- --only=search-console</span>, then <span class="mono">npm run seo:load</span>.</p>
+      {weekly.length > 0 && (
+        <Columns title="Clicks from Google search per week" height={210} unit=" clicks" labelEvery={Math.ceil(weekly.length / 8)}
+          buckets={weekly.map((w) => ({ label: monthYear(w.week), tip: `Week of ${shortDate(w.week)} · ${num(w.impressions)} impressions` }))}
+          series={[{ name: 'Clicks', color: 'var(--series-1)', values: weekly.map((w) => w.clicks) }]} />
+      )}
+    </Panel>
+    <Panel title="Where the clicks come from" subtitle={`${window}. Brand searches name ARR; Google hides rare searches for privacy, so some clicks have no search term.`} result={gsc} source={source} emptyText="No Search Console data yet.">
+      <BarList shareOf={cur?.clicks || undefined} rows={[
+        { label: 'Non-brand searches', value: openClicks, detail: 'People looking for a service, not for ARR' },
+        { label: 'Brand searches', value: brandClicks, detail: 'People who already know ARR' },
+        { label: 'Hidden by Google', value: hiddenClicks, detail: 'Rare searches Search Console doesn’t list' }
+      ]} />
+    </Panel>
+  </div>
+
+  <Panel title="Our tracked keywords, measured" subtitle={`${window}. Every non-brand search containing the keyword's words, e.g. "furnace repair orland park". The Rankings tab checks where we place; this is what Google says people did.`} result={gsc} source={source} flush emptyText="No Search Console data yet.">
+    <div class="table-wrap"><table>
+      <thead><tr><th>Keyword</th><th class="num">Search terms</th><th class="num">Impressions</th><th class="num">Clicks</th><th class="num">Click rate</th><th class="num">Avg position</th></tr></thead>
+      <tbody>{tracked.map((k) => (
+        <tr>
+          <td><a href={href('/seo/rankings', url, { service: k.service })}>{sentence(k.keyword)}</a><span class="muted small svc">{SERVICE_LABEL[k.service]}</span></td>
+          <td class="num">{k.terms ? num(k.terms) : <span class="muted">—</span>}</td>
+          <td class="num">{num(k.impressions)}</td>
+          <td class="num">{num(k.clicks)}{k.prev && k.clicks !== k.prev.clicks && <span class:list={['mv', k.clicks > k.prev.clicks ? 'up' : 'down']}>{k.clicks > k.prev.clicks ? '▲' : '▼'}{num(Math.abs(k.clicks - k.prev.clicks))}</span>}</td>
+          <td class="num">{k.impressions ? pct(k.ctr) : '—'}</td>
+          <td class="num">{posStr(k.position)}</td>
+        </tr>
+      ))}</tbody>
+    </table></div>
+  </Panel>
+
+  <Panel title="Closest wins" subtitle="Non-brand searches where Google already shows us, but at position 4–20: low on page one or on page two. Moving these up turns impressions we already get into calls." result={gsc} source={source} flush emptyText="No Search Console data yet.">
+    {wins.length === 0 ? <p class="muted small pad">No non-brand searches at position 4–20 with 20 or more impressions in this window.</p> : (
+      <div class="table-wrap"><table>
+        <thead><tr><th>Search term</th><th class="num">Impressions</th><th class="num">Clicks</th><th class="num">Click rate</th><th class="num">Avg position</th></tr></thead>
+        <tbody>{wins.map((q) => { const pm = posMove(q); return (
+          <tr>
+            <td>{q.query}</td>
+            <td class="num">{num(q.impressions)}</td>
+            <td class="num">{num(q.clicks)}</td>
+            <td class="num">{pct(q.ctr)}</td>
+            <td class="num">{posStr(q.position)}{pm && <span class:list={['mv', pm.cls]}>{pm.text}</span>}</td>
+          </tr>
+        ); })}</tbody>
+      </table></div>
+    )}
+  </Panel>
+
+  <Panel title="Top search terms" subtitle={`${window}, most clicks first. Arrows compare with the ${d?.period.days ?? 28} days before.`} result={gsc} source={source} flush emptyText="No Search Console data yet.">
+    <nav slot="actions" class="seg small" aria-label="Which search terms">
+      <a href={href('/seo/search-console', url, { kind: undefined })} class:list={{ on: !kind }}>All</a>
+      <a href={href('/seo/search-console', url, { kind: 'non-brand' })} class:list={{ on: kind === 'non-brand' }}>Non-brand</a>
+      <a href={href('/seo/search-console', url, { kind: 'brand' })} class:list={{ on: kind === 'brand' }}>Brand</a>
+    </nav>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Search term</th><th class="num">Clicks</th><th class="num">Impressions</th><th class="num">Click rate</th><th class="num">Avg position</th></tr></thead>
+      <tbody>{shown.map((q) => { const cm = clickMove(q), pm = posMove(q); return (
+        <tr>
+          <td>{q.query}{isBrand(q.query) && <span class="tag small">brand</span>}</td>
+          <td class="num">{num(q.clicks)}{cm && <span class:list={['mv', cm.cls]}>{cm.text}</span>}</td>
+          <td class="num">{num(q.impressions)}</td>
+          <td class="num">{pct(q.ctr)}</td>
+          <td class="num">{posStr(q.position)}{pm && <span class:list={['mv', pm.cls]}>{pm.text}</span>}</td>
+        </tr>
+      ); })}</tbody>
+    </table></div>
+  </Panel>
+
+  <Panel title="Top pages" subtitle={`${window}, most clicks first. Every search that led to the page, hidden searches included.`} result={gsc} source={source} flush emptyText="No Search Console data yet.">
+    <div class="table-wrap"><table>
+      <thead><tr><th>Page</th><th class="num">Clicks</th><th class="num">Impressions</th><th class="num">Click rate</th><th class="num">Avg position</th></tr></thead>
+      <tbody>{pages.map((p) => { const cm = clickMove(p), pm = posMove(p); return (
+        <tr>
+          <td class="mono small"><a href={httpUrl(p.page)} rel="noopener" target="_blank">{pathOf(p.page)}</a></td>
+          <td class="num">{num(p.clicks)}{cm && <span class:list={['mv', cm.cls]}>{cm.text}</span>}</td>
+          <td class="num">{num(p.impressions)}</td>
+          <td class="num">{pct(p.ctr)}</td>
+          <td class="num">{posStr(p.position)}{pm && <span class:list={['mv', pm.cls]}>{pm.text}</span>}</td>
+        </tr>
+      ); })}</tbody>
+    </table></div>
+  </Panel>
+
+  <p class="muted small">These are Google's own counts for alwaysreadyrepair.com, not estimates: an impression is a time we appeared in someone's results, a click is a visit from them. Average position is weighted by impressions, so it moves with which searches we show up for, not only how well we rank. Google reports with a 2–3 day lag, keeps 16 months, and covers Google search only (not Maps, not AI assistants).</p>
+</Shell>
+
+<style>
+  .svc { display: block; }
+  table td:first-child, table th:first-child { padding-left: 18px; }
+  .mv { margin-left: 6px; font-size: 10.5px; font-weight: 600; }
+  .mv.up { color: var(--good); }
+  .mv.down { color: var(--serious); }
+  .mv.new { color: var(--text-3); font-weight: 500; }
+  .tag { margin-left: 8px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--border); color: var(--text-2); }
+  .pad { padding: 14px 18px; margin: 0; }
+  .seg { display: inline-flex; gap: 2px; border: 1px solid var(--border); border-radius: 7px; padding: 2px; }
+  .seg a { padding: 2px 9px; border-radius: 5px; color: var(--text-2); }
+  .seg a:hover { text-decoration: none; color: var(--text-1); }
+  .seg a.on { background: var(--accent-dim); color: var(--text-1); }
+</style>
