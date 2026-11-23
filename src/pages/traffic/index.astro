@@ -1,0 +1,160 @@
+---
+import Shell from '../../components/layout/Shell.astro';
+import TrafficTabs from '../../components/traffic/TrafficTabs.astro';
+import EdgeNotice from '../../components/traffic/EdgeNotice.astro';
+import Panel from '../../components/ui/Panel.astro';
+import Kpi from '../../components/ui/Kpi.astro';
+import Lines from '../../components/charts/Lines.astro';
+import Columns from '../../components/charts/Columns.astro';
+import BarList from '../../components/charts/BarList.astro';
+import { load, hasData, errorOf } from '../../lib/load.ts';
+import { href, rangeDates, RANGES, readGlobalFilters } from '../../lib/filters.ts';
+import { date, num, pct } from '../../lib/format.ts';
+import { ratio } from '../../lib/stats.ts';
+import { shortDate } from '../../lib/seo/stats.ts';
+import { aiReferrals, assistantFor, bucketDays, bytes, change, crawlerTotals, eachDay, edgeGap, reviewEdge, shiftDay, total } from '../../lib/traffic/stats.ts';
+
+const { repos, now, simulate } = Astro.locals;
+const url = Astro.url;
+const traffic = repos.traffic;
+const g = readGlobalFilters(url);
+const { from, to } = rangeDates(g.range, now);
+const span = RANGES.find((r) => r.key === g.range)!.days;
+const prevTo = shiftDay(from, 1), prevFrom = shiftDay(from, span);
+const opts = { simulate, now };
+const takenAt = await traffic.takenAt().catch(() => null);
+const asOf = () => takenAt;
+const fresh = { ...opts, asOf, staleKind: 'traffic' as const };
+const edge = reviewEdge(await traffic.edge().catch(() => null), traffic.kind, url);
+const noEdge = edgeGap(edge) != null;
+
+const [visits, visitsPrev, days, pages, referrers, notFound, crawlers] = await Promise.all([
+  load(() => traffic.visits(from, to), fresh),
+  load(() => traffic.visits(prevFrom, prevTo), opts),
+  load(() => traffic.days(from, to), fresh),
+  load(() => traffic.pages(), { ...fresh, isEmpty: (p) => !p?.rows.length }),
+  load(() => traffic.referrers(), { ...fresh, isEmpty: (r) => !r?.rows.length }),
+  load(() => traffic.notFound(), { ...fresh, isEmpty: (n) => !n?.rows.length }),
+  load(() => traffic.crawlers(from, to), fresh)
+]);
+
+const v = hasData(visits) && visits.data ? visits.data : [];
+const vp = hasData(visitsPrev) && visitsPrev.data ? visitsPrev.data : [];
+const sumVisits = total(v, (d) => d.visits), sumViews = total(v, (d) => d.pageViews);
+// Only compare against a previous period that's fully covered, or the change is an artefact of missing history.
+const prevComplete = vp.length >= span - 1;
+const dVisits = prevComplete ? change(sumVisits, total(vp, (d) => d.visits)) : null;
+const dViews = prevComplete ? change(sumViews, total(vp, (d) => d.pageViews)) : null;
+const delta = (d: number | null) => (d == null ? 'no earlier period to compare' : `${d >= 0 ? '+' : '−'}${pct(Math.abs(d))} vs the ${span} days before`);
+
+const ref = hasData(referrers) && referrers.data ? referrers.data : null;
+const ai = ref ? aiReferrals(ref.rows) : [];
+const aiVisits = total(ai, (a) => a.visits);
+const referred = ref ? total(ref.rows, (r) => r.visits) : 0;
+const aiCrawl = hasData(crawlers) ? crawlerTotals(crawlers.data).filter((c) => c.bot.purpose !== 'search-engine') : [];
+const win = (w: { from: string; to: string } | undefined) => (w ? `${shortDate(w.from)} – ${shortDate(w.to)}` : '');
+
+// Charts: per day up to a month, weekly beyond.
+const dayList = eachDay(from, to);
+const buckets = bucketDays(dayList, span > 31 ? 7 : 1);
+const bucketLabel = (b: (typeof buckets)[number]) => ({ label: shortDate(b.from), tip: b.from === b.to ? date(b.from) : `${date(b.from)} – ${date(b.to)}` });
+const per = <T extends { date: string }>(rows: T[], pick: (r: T) => number) => {
+  const m = new Map(rows.map((r) => [r.date, pick(r)]));
+  return buckets.map((b) => b.days.reduce((s, d) => s + (m.get(d) ?? 0), 0));
+};
+const z = hasData(days) ? days.data : [];
+const zReq = total(z, (d) => d.requests), zCached = total(z, (d) => d.cachedRequests);
+const labelEvery = Math.ceil(buckets.length / 7);
+const granularity = span > 31 ? 'week' : 'day';
+---
+<Shell title="Web Traffic" question="How many people visit ARR's website, which pages they read, where they come from, and what's broken, as Cloudflare sees it." filters={{ range: true }}>
+  <TrafficTabs />
+
+  <div class="grid cols-4">
+    <Kpi label="Visits" value={hasData(visits) && visits.data ? num(sumVisits) : '—'} detail={hasData(visits) && visits.data ? delta(dVisits) : visits.status === 'empty' ? 'Web Analytics not set up' : undefined} error={errorOf(visits)} />
+    <Kpi label="Page views" value={hasData(visits) && visits.data ? num(sumViews) : '—'} detail={hasData(visits) && visits.data ? delta(dViews) : undefined} error={errorOf(visits)} />
+    <Kpi label="Visits from AI assistants" value={ref ? num(aiVisits) : '—'} detail={ref ? `${pct(ratio(aiVisits, referred))} of referred visits, ${win(ref.window)}` : undefined} href={href('/traffic/ai', url)} error={errorOf(referrers)} />
+    <Kpi label="AI crawler requests" value={noEdge ? 'n/a' : hasData(crawlers) ? num(total(aiCrawl, (c) => c.requests)) : '—'} detail={noEdge ? 'Site not proxied by Cloudflare, so crawlers aren\'t seen' : hasData(crawlers) ? `${num(aiCrawl.length)} AI bots, this range` : undefined} href={href('/traffic/ai', url)} error={errorOf(crawlers)} />
+  </div>
+
+  <div class="grid split">
+    <Panel title="Visits" subtitle={`Per ${granularity}. A visit is a page view that arrived from another site or a typed address. Real browsers only: Web Analytics runs in the page, so bots aren't counted.`} result={visits} source="Cloudflare Web Analytics" emptyText="Web Analytics isn't set up for this site, so there are no visitor counts. Turn it on for the site in the Cloudflare dashboard, then refresh.">
+      {v.length > 0 && (
+        <Lines title={`Visits and page views per ${granularity}`} height={210} labelEvery={labelEvery}
+          buckets={buckets.map(bucketLabel)}
+          series={[
+            { name: 'Page views', color: 'var(--series-3)', values: per(v, (d) => d.pageViews) },
+            { name: 'Visits', color: 'var(--series-1)', values: per(v, (d) => d.visits) }
+          ]} />
+      )}
+    </Panel>
+    <Panel title="Where visits come from" subtitle={`Referring sites, ${ref ? win(ref.window) : 'latest refresh'}. Visits with no referrer (typed, bookmarks, apps) aren't listed.`} result={referrers} source="Cloudflare Web Analytics" emptyText="No referrer data yet.">
+      {ref && <BarList rows={ref.rows.slice(0, 12).map((r) => {
+        const a = assistantFor(r.host);
+        return { label: a ? `${r.host} · AI` : r.host, value: r.visits, detail: a ? `Came from an answer in ${a.label}` : undefined };
+      })} shareOf={referred || undefined} />}
+    </Panel>
+  </div>
+
+  <div class="grid cols-2">
+    <Panel title="Most-read pages" subtitle={`Page views and the visits that landed on each page, ${pages.status === 'ok' || pages.status === 'stale' ? win(pages.data?.window) : 'latest refresh'}.`} result={pages} source="Cloudflare Web Analytics" flush emptyText="No page data yet.">
+      {hasData(pages) && pages.data && (
+        <div class="table-wrap"><table>
+          <thead><tr><th>Page</th><th class="num">Page views</th><th class="num">Landed here</th></tr></thead>
+          <tbody>{pages.data.rows.slice(0, 15).map((p) => (
+            <tr><td class="mono path">{p.path}</td><td class="num">{num(p.pageViews)}</td><td class="num">{num(p.visits)}</td></tr>
+          ))}</tbody>
+        </table></div>
+      )}
+    </Panel>
+    <Panel title="Requests at Cloudflare's edge" subtitle={`Every request to the site per ${granularity}, people and bots, pages and images. Cached ones never reach the web host.`} result={days} source="Cloudflare zone analytics" emptyText="No zone traffic in this range.">
+      <EdgeNotice edge={edge} compact />
+      {z.length > 0 && (
+        <>
+          <Columns title={`Edge requests per ${granularity}, cached and not`} height={180} labelEvery={labelEvery}
+            buckets={buckets.map(bucketLabel)}
+            series={[
+              { name: 'Served from cache', color: 'var(--series-1)', values: per(z, (d) => d.cachedRequests) },
+              { name: 'From the web host', color: 'var(--series-4)', values: per(z, (d) => d.requests - d.cachedRequests) }
+            ]} />
+          <dl class="facts">
+            <div><dt>Requests</dt><dd>{num(zReq)}</dd></div>
+            <div><dt>Cached</dt><dd>{pct(ratio(zCached, zReq))}</dd></div>
+            <div><dt>Bandwidth</dt><dd>{bytes(total(z, (d) => d.bytes))}</dd></div>
+            <div><dt>Server errors (5xx)</dt><dd>{num(total(z, (d) => d.status5xx))}</dd></div>
+            <div><dt>Threats blocked</dt><dd>{num(total(z, (d) => d.threats))}</dd></div>
+          </dl>
+        </>
+      )}
+    </Panel>
+  </div>
+
+  <Panel title="Pages not found (404)" subtitle={`Addresses that returned 404, most-requested first, ${notFound.status === 'ok' || notFound.status === 'stale' ? win(notFound.data?.window) : 'latest refresh'}.`} result={notFound} source="Cloudflare zone analytics" flush emptyText="No 404s recorded.">
+    <div class="pad-x"><EdgeNotice edge={edge} compact /></div>
+    {hasData(notFound) && notFound.data && (
+      <>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Address</th><th class="num">Requests</th><th>Likely</th></tr></thead>
+          <tbody>{notFound.data.rows.slice(0, 15).map((n) => {
+            const likely = /wp-|xmlrpc|\.env|\.php$|\/\.git/i.test(n.path) ? 'Bot probing for weak spots. Ignore.'
+              : /\.(png|ico|jpe?g|svg|webp|gif|css|js|map|webmanifest)$/i.test(n.path) ? 'Missing file a browser or app asked for.'
+              : 'Old or mistyped link. Redirect it if it was a real page.';
+            return <tr><td class="mono path">{n.path}</td><td class="num">{num(n.requests)}</td><td class="muted">{likely}</td></tr>;
+          })}</tbody>
+        </table></div>
+        <p class="muted small pad">Counts include bots. An old page address that still gets requests usually means a link or a search result points at it: a 301 redirect to the current page keeps that traffic.</p>
+      </>
+    )}
+  </Panel>
+</Shell>
+
+<style>
+  .path { font-size: var(--fs-sm); overflow-wrap: anywhere; }
+  .pad { padding: 8px 18px 0; }
+  .pad-x { padding: 0 18px; }
+  .facts { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 10px 0 0; }
+  .facts div { display: flex; flex-direction: column; }
+  .facts dt { font-size: var(--fs-xs); color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
+  .facts dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+  table td:first-child, table th:first-child { padding-left: 18px; }
+</style>

@@ -7,11 +7,16 @@
   ],
   "vars": {
     "DATA_SOURCE": "mock",
-    "SEO_DATA_SOURCE": "mock"
+    "SEO_DATA_SOURCE": "mock",
+    "TRAFFIC_DATA_SOURCE": "mock"
   },
   "kv_namespaces": [
     {
       "binding": "SEO",
+      "id": "local"
+    },
+    {
+      "binding": "TRAFFIC",
       "id": "local"
     }
   ]

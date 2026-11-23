@@ -1,0 +1,47 @@
+---
+/* Sub-navigation for the Web Traffic section, plus where the numbers come from. Every traffic page renders it first. */
+import { href } from '../../lib/filters.ts';
+import { dateTime, relative } from '../../lib/format.ts';
+import Icon from '../ui/Icon.astro';
+
+const { url, locals } = Astro;
+const { repos, now } = locals;
+let takenAt: string | null = null;
+try {
+  takenAt = await repos.traffic.takenAt();
+} catch {
+  // The panels report the failure themselves; the tab bar shouldn't.
+}
+const TABS = [
+  { path: '/traffic', label: 'Overview' },
+  { path: '/traffic/ai', label: 'AI crawlers & referrals' }
+];
+---
+<div class="t-head">
+  <nav class="tabs" aria-label="Web Traffic sections">
+    {TABS.map((t) => (
+      <a href={href(t.path, url)} class:list={['tab', { on: url.pathname === t.path }]} aria-current={url.pathname === t.path ? 'page' : undefined}>{t.label}</a>
+    ))}
+  </nav>
+  <p class="src muted small">
+    <Icon name={repos.traffic.kind === 'mock' ? 'flask' : 'refresh'} size={13} />
+    {repos.traffic.kind === 'mock'
+      ? <>Synthetic data. Run <span class="mono">npm run traffic:refresh</span> and set <span class="mono">TRAFFIC_DATA_SOURCE=snapshot</span> for ARR's own.</>
+      : <>Cloudflare, last refresh <span title={dateTime(takenAt)}>{relative(takenAt, now)}</span> · <span class="mono">npm run traffic:refresh</span></>}
+  </p>
+</div>
+
+<style>
+  .t-head { display: flex; justify-content: space-between; align-items: center; gap: 10px 16px; flex-wrap: wrap; }
+  /* Underline tabs: this is page navigation, so it must not look like the filter chips on Imports. */
+  .t-head { border-bottom: 1px solid var(--border); padding-bottom: 0; }
+  .tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; margin-bottom: -1px; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { flex: none; padding: 8px 10px 9px; color: var(--text-2); font-weight: 500; font-size: var(--fs-sm); border-bottom: 2px solid transparent; white-space: nowrap; }
+  .tab:hover { color: var(--text-1); text-decoration: none; border-bottom-color: var(--border-strong); }
+  .tab.on { color: var(--text-1); border-bottom-color: var(--accent); }
+  .src { display: block; line-height: 1.6; padding: 6px 0; }
+  .src :global(svg) { vertical-align: -2px; margin-right: 4px; }
+  .src .mono { overflow-wrap: anywhere; }
+  .src .mono { font-size: var(--fs-xs); }
+</style>

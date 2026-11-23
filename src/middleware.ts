@@ -16,8 +16,8 @@ export const onRequest = defineMiddleware(async (context, next) => {
   locals.now = new Date();
   // State simulation is a mock-mode review aid. It never applies to real data.
   const sim = url.searchParams.get('simulate');
-  const onSeo = url.pathname === '/seo' || url.pathname.startsWith('/seo/');
-  const kind = onSeo ? locals.repos.seo.kind : locals.repos.kind;
+  const under = (p: string) => url.pathname === p || url.pathname.startsWith(`${p}/`);
+  const kind = under('/seo') ? locals.repos.seo.kind : under('/traffic') ? locals.repos.traffic.kind : locals.repos.kind;
   locals.simulate = kind === 'mock' && sim && SIMULATE.has(sim) ? (sim as Simulate) : null;
   return next();
 });

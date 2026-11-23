@@ -37,12 +37,16 @@ const NAV_GROUPS = [
     { path: '/imports', label: 'Imports', icon: 'import' },
     { path: '/quality', label: 'Data Quality', icon: 'shield' }
   ] },
-  { label: 'Growth', items: [{ path: '/seo', label: 'SEO & AEO', icon: 'globe' }] },
+  { label: 'Growth', items: [
+    { path: '/seo', label: 'SEO & AEO', icon: 'globe' },
+    { path: '/traffic', label: 'Web Traffic', icon: 'pulse' }
+  ] },
   { label: 'Platform', items: [{ path: '/projects', label: 'Projects & API', icon: 'key' }] }
 ] as const;
-// The SEO pages have their own data source (SEO_DATA_SOURCE), so the mock banner and footer follow it there.
-const onSeo = url.pathname === '/seo' || url.pathname.startsWith('/seo/');
-const dataKind = onSeo ? repos.seo.kind : repos.kind;
+// The SEO and Web Traffic pages have their own data sources (SEO_DATA_SOURCE, TRAFFIC_DATA_SOURCE), so the mock
+// banner and footer follow them there.
+const under = (p: string) => url.pathname === p || url.pathname.startsWith(`${p}/`);
+const dataKind = under('/seo') ? repos.seo.kind : under('/traffic') ? repos.traffic.kind : repos.kind;
 const isActive = (p: string) => (p === '/' ? url.pathname === '/' : url.pathname === p || url.pathname.startsWith(`${p}/`));
 
 // Page-specific params survive a filter change. `page` doesn't, because the result set changes.

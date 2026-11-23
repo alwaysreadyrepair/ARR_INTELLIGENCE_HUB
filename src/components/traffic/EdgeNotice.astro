@@ -1,0 +1,30 @@
+---
+/* Explains why Cloudflare's edge counts (requests, crawlers, 404s) miss the site's traffic when its hostnames are
+ * DNS-only. Renders nothing when the site is proxied or coverage is unknown. */
+import Icon from '../ui/Icon.astro';
+import { edgeGap } from '../../lib/traffic/stats.ts';
+import type { EdgeCoverage } from '../../domain/traffic.ts';
+
+interface Props { edge: EdgeCoverage | null; compact?: boolean }
+const { edge, compact } = Astro.props;
+const text = edgeGap(edge);
+---
+{text && (
+  <div class:list={['edge-note', { compact }]} role="note">
+    <Icon name="info" size={15} />
+    <div>
+      <strong>Cloudflare doesn't see the site's own traffic.</strong>
+      <span>{text}</span>
+      {!compact && <span class="fix">To count it, the site's hostnames would have to be proxied (orange cloud). Ask the site host first: Webflow, for one, advises against putting its sites behind another Cloudflare proxy.</span>}
+    </div>
+  </div>
+)}
+
+<style>
+  .edge-note { display: flex; gap: 8px; align-items: flex-start; font-size: var(--fs-sm); line-height: 1.5; padding: 9px 12px; border-radius: var(--radius); color: var(--text-2); background: var(--accent-dim); border: 1px solid rgba(3, 188, 230, 0.35); }
+  .edge-note :global(svg) { color: var(--accent); margin-top: 2px; }
+  .edge-note strong { color: var(--text-1); display: block; }
+  .edge-note span { display: block; }
+  .fix { margin-top: 4px; color: var(--text-3); }
+  .compact { margin-bottom: 10px; }
+</style>
