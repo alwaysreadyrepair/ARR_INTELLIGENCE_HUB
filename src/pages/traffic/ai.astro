@@ -1,0 +1,148 @@
+---
+import Shell from '../../components/layout/Shell.astro';
+import TrafficTabs from '../../components/traffic/TrafficTabs.astro';
+import EdgeNotice from '../../components/traffic/EdgeNotice.astro';
+import Panel from '../../components/ui/Panel.astro';
+import Kpi from '../../components/ui/Kpi.astro';
+import Lines from '../../components/charts/Lines.astro';
+import BarList from '../../components/charts/BarList.astro';
+import { load, hasData, errorOf } from '../../lib/load.ts';
+import { href, rangeDates, RANGES, readGlobalFilters } from '../../lib/filters.ts';
+import { date, num, pct } from '../../lib/format.ts';
+import { ratio } from '../../lib/stats.ts';
+import { shortDate } from '../../lib/seo/stats.ts';
+import { aiReferrals, botById, bucketDays, crawlerTotals, eachDay, edgeGap, reviewEdge, total } from '../../lib/traffic/stats.ts';
+import { PURPOSE_HELP, PURPOSE_LABEL } from '../../data/traffic/bots.ts';
+import type { BotPurpose } from '../../domain/traffic.ts';
+
+const { repos, now, simulate } = Astro.locals;
+const url = Astro.url;
+const traffic = repos.traffic;
+const g = readGlobalFilters(url);
+const { from, to } = rangeDates(g.range, now);
+const span = RANGES.find((r) => r.key === g.range)!.days;
+const opts = { simulate, now };
+const takenAt = await traffic.takenAt().catch(() => null);
+const fresh = { ...opts, asOf: () => takenAt, staleKind: 'traffic' as const };
+const edge = reviewEdge(await traffic.edge().catch(() => null), traffic.kind, url);
+const noEdge = edgeGap(edge) != null;
+
+const [crawlers, paths, referrers] = await Promise.all([
+  load(() => traffic.crawlers(from, to), fresh),
+  load(() => traffic.crawledPaths(), { ...fresh, isEmpty: (p) => !p?.rows.length }),
+  load(() => traffic.referrers(), { ...fresh, isEmpty: (r) => !r?.rows.length })
+]);
+
+const rows = hasData(crawlers) ? crawlers.data : [];
+const totals = crawlerTotals(rows);
+const aiTotals = totals.filter((t) => t.bot.purpose !== 'search-engine');
+const engines = totals.filter((t) => t.bot.purpose === 'search-engine');
+const aiAll = total(aiTotals, (t) => t.requests);
+const byPurpose = (p: BotPurpose) => total(aiTotals.filter((t) => t.bot.purpose === p), (t) => t.requests);
+const firstDay = rows[0]?.date;
+
+// Lines: AI crawler requests by operator. The four busiest get a line, the rest share "Other".
+const COLORS = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)', 'var(--series-5)'];
+const opTotals = new Map<string, number>();
+for (const t of aiTotals) opTotals.set(t.bot.operator, (opTotals.get(t.bot.operator) ?? 0) + t.requests);
+const topOps = [...opTotals].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([o]) => o);
+const groupOf = (bot: string) => {
+  const op = botById(bot)?.operator ?? 'Other';
+  return topOps.includes(op) ? op : 'Other';
+};
+const groups = [...topOps, ...(opTotals.size > topOps.length ? ['Other'] : [])];
+const buckets = bucketDays(eachDay(from, to), span > 31 ? 7 : 1);
+const series = groups.map((name, i) => {
+  const m = new Map<string, number>();
+  for (const r of rows) if (botById(r.bot)?.purpose !== 'search-engine' && groupOf(r.bot) === name) m.set(r.date, (m.get(r.date) ?? 0) + r.requests);
+  return { name, color: COLORS[i]!, values: buckets.map((b) => b.days.reduce((s, d) => s + (m.get(d) ?? 0), 0)) };
+});
+const granularity = span > 31 ? 'week' : 'day';
+
+// What AI crawlers read: paths summed over AI bots only.
+const p = hasData(paths) && paths.data ? paths.data : null;
+const pathTotals = new Map<string, { requests: number; bots: Set<string> }>();
+for (const r of p?.rows ?? []) {
+  const bot = botById(r.bot);
+  if (!bot || bot.purpose === 'search-engine') continue;
+  const row = pathTotals.get(r.path) ?? { requests: 0, bots: new Set<string>() };
+  row.requests += r.requests;
+  row.bots.add(bot.label);
+  pathTotals.set(r.path, row);
+}
+const topPaths = [...pathTotals].sort((a, b) => b[1].requests - a[1].requests).slice(0, 12);
+
+const ref = hasData(referrers) && referrers.data ? referrers.data : null;
+const ai = ref ? aiReferrals(ref.rows) : [];
+const aiVisits = total(ai, (a) => a.visits);
+const referred = ref ? total(ref.rows, (r) => r.visits) : 0;
+const win = (w: { from: string; to: string } | undefined) => (w ? `${shortDate(w.from)} – ${shortDate(w.to)}` : 'latest refresh');
+---
+<Shell title="AI crawlers & referrals" question="Which AI companies read ARR's website, why, and how many visitors their assistants send back." filters={{ range: true }}>
+  <TrafficTabs />
+  <EdgeNotice edge={edge} />
+
+  <div class="grid cols-4">
+    <Kpi label="AI crawler requests" value={noEdge ? 'n/a' : hasData(crawlers) ? num(aiAll) : '—'} detail={noEdge ? 'Not visible: the site isn\'t proxied' : hasData(crawlers) ? `${num(aiTotals.length)} AI bots${firstDay && firstDay > from ? `, counted since ${date(firstDay)}` : ', this range'}` : undefined} error={errorOf(crawlers)} />
+    <Kpi label="Live user requests" value={noEdge ? 'n/a' : hasData(crawlers) ? num(byPurpose('user')) : '—'} detail={noEdge ? 'Not visible: the site isn\'t proxied' : hasData(crawlers) ? 'An assistant opened a page while answering someone\'s question' : undefined} error={errorOf(crawlers)} />
+    <Kpi label="AI search indexing" value={noEdge ? 'n/a' : hasData(crawlers) ? num(byPurpose('ai-search')) : '—'} detail={noEdge ? 'Not visible: the site isn\'t proxied' : hasData(crawlers) ? `Pages fetched so AI answers can cite them · training: ${num(byPurpose('training'))}` : undefined} error={errorOf(crawlers)} />
+    <Kpi label="Visits from AI assistants" value={ref ? num(aiVisits) : '—'} detail={ref ? `${pct(ratio(aiVisits, referred))} of referred visits, ${win(ref.window)}` : undefined} error={errorOf(referrers)} />
+  </div>
+
+  <div class="grid split">
+    <Panel title="AI crawler requests" subtitle={`Per ${granularity}, by company. Search engines left out; they're in the table below for scale.`} result={crawlers} source="Cloudflare zone analytics (User-Agent)" emptyText="No AI crawler requests in this range.">
+      {series.length > 0 && (
+        <Lines title={`AI crawler requests per ${granularity}, by company`} height={220} labelEvery={Math.ceil(buckets.length / 7)}
+          buckets={buckets.map((b) => ({ label: shortDate(b.from), tip: b.from === b.to ? date(b.from) : `${date(b.from)} – ${date(b.to)}` }))}
+          series={series} />
+      )}
+      {firstDay && firstDay > from && <p class="muted small">Counts start {date(firstDay)}: Cloudflare keeps per-request detail for a short time on most plans, so the history is what daily refreshes have collected.</p>}
+    </Panel>
+    <Panel title="Visits from AI assistants" subtitle={`People who clicked through from an answer, ${ref ? win(ref.window) : 'latest refresh'}. Assistants that don't pass a referrer show up as direct visits, so this is a floor.`} result={referrers} source="Cloudflare Web Analytics" emptyText="No referrer data yet.">
+      {ai.length > 0
+        ? <BarList rows={ai.map((a) => ({ label: a.assistant.label, value: a.visits }))} />
+        : <p class="muted">No visits from AI assistants in this window.</p>}
+      <p class="muted small note">Compare with <a href={href('/seo/ai', url)}>AI answers</a>: how often each assistant names ARR when asked.</p>
+    </Panel>
+  </div>
+
+  <Panel title="Crawlers" subtitle="Every known crawler seen in this range. A bot is identified by its User-Agent, which a scraper can fake, so treat small counts loosely." result={crawlers} source="Cloudflare zone analytics (User-Agent)" flush emptyText="No known crawlers in this range.">
+    <div class="table-wrap"><table>
+      <thead><tr><th>Crawler</th><th>Company</th><th>Why it fetches</th><th class="num">Requests</th><th class="num">Share</th><th>Last seen</th></tr></thead>
+      <tbody>
+        {[...aiTotals, ...engines].map((t) => (
+          <tr class:list={{ dim: t.bot.purpose === 'search-engine' }}>
+            <td><strong>{t.bot.label}</strong></td>
+            <td>{t.bot.operator}</td>
+            <td><span class:list={['purpose', t.bot.purpose]} title={PURPOSE_HELP[t.bot.purpose]}>{PURPOSE_LABEL[t.bot.purpose]}</span></td>
+            <td class="num">{num(t.requests)}</td>
+            <td class="num">{t.bot.purpose === 'search-engine' ? '' : pct(ratio(t.requests, aiAll))}</td>
+            <td>{date(t.lastSeen)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table></div>
+    <p class="muted small pad">Training crawlers don't send anyone to the site; AI search and live-request crawlers are how ARR gets named and linked in answers. Blocking or allowing each one is set in Cloudflare (AI Crawl Control) and robots.txt. The Hub only reads.</p>
+  </Panel>
+
+  <Panel title="What AI crawlers read" subtitle={`AI bots only, ${p ? win(p.window) : 'latest refresh'}.`} result={paths} source="Cloudflare zone analytics" flush emptyText="No crawled pages recorded yet.">
+      <div class="table-wrap"><table>
+        <thead><tr><th>Page</th><th class="num">Requests</th><th>By</th></tr></thead>
+        <tbody>{topPaths.map(([path, r]) => (
+          <tr><td class="mono path">{path}</td><td class="num">{num(r.requests)}</td><td class="muted small">{[...r.bots].slice(0, 3).join(', ')}{r.bots.size > 3 ? ` +${r.bots.size - 3}` : ''}</td></tr>
+        ))}</tbody>
+      </table></div>
+  </Panel>
+</Shell>
+
+<style>
+  .path { font-size: 12px; overflow-wrap: anywhere; }
+  .pad { padding: 8px 18px 0; }
+  .note { margin-top: 10px; }
+  .dim td { color: var(--text-3); }
+  .purpose { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
+  .purpose.user { color: var(--series-1); border-color: currentColor; }
+  .purpose.ai-search { color: var(--series-3); border-color: currentColor; }
+  .purpose.training { color: var(--text-2); }
+  table td:first-child, table th:first-child { padding-left: 18px; }
+</style>

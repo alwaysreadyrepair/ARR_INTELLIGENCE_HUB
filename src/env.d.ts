@@ -11,6 +11,10 @@ type Env = {
   SEO_DATA_SOURCE?: string;
   /** KV namespace holding the SEO snapshot written by `npm run seo:load`. */
   SEO?: import('./repositories/seo.ts').SeoKv;
+  /** 'mock' (default) or 'snapshot'. Where the Web Traffic pages read from. See src/repositories/index.ts. */
+  TRAFFIC_DATA_SOURCE?: string;
+  /** KV namespace holding the Cloudflare traffic snapshot written by `npm run traffic:load`. */
+  TRAFFIC?: import('./repositories/traffic.ts').TrafficKv;
 };
 type Runtime<E> = import('@astrojs/cloudflare').Runtime<E>;
 declare namespace App {

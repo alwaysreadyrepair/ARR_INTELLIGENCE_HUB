@@ -15,6 +15,7 @@ import type {
 import type {
   AiAnswer, AiEngine, CompetitorProfile, KeywordMetric, LocalPackResult, RankObservation, SeoService, SeoSpend, SeoTargets, SiteAudit
 } from '../domain/seo.ts';
+import type { CrawledPath, CrawlerDay, EdgeCoverage, NotFoundPath, PageCount, ReferrerCount, VisitDay, Window, ZoneDay } from '../domain/traffic.ts';
 
 export interface Page<T> {
   items: T[];
@@ -141,10 +142,31 @@ export interface SeoRepository {
   spend(): Promise<SeoSpend[]>;
 }
 
+/** Website traffic as Cloudflare sees it. Its own source switch (TRAFFIC_DATA_SOURCE), like SEO: the data comes from
+ *  Cloudflare's analytics API via `npm run traffic:refresh`, never from the request path. Daily series come back
+ *  sorted by date and limited to the window asked for; the top-N lists are whatever window the last refresh covered. */
+export interface TrafficRepository {
+  /** 'mock' (synthetic) or 'snapshot' (the last `traffic:refresh` run). */
+  kind: 'mock' | 'snapshot';
+  takenAt(): Promise<string | null>;
+  zone(): Promise<string>;
+  /** Whether the site's hostnames are proxied by the zone; null when unknown. */
+  edge(): Promise<EdgeCoverage | null>;
+  days(from: ISODate, to: ISODate): Promise<ZoneDay[]>;
+  /** Null when Web Analytics isn't set up for the site. */
+  visits(from: ISODate, to: ISODate): Promise<VisitDay[] | null>;
+  crawlers(from: ISODate, to: ISODate): Promise<CrawlerDay[]>;
+  pages(): Promise<{ window: Window; rows: PageCount[] } | null>;
+  referrers(): Promise<{ window: Window; rows: ReferrerCount[] } | null>;
+  crawledPaths(): Promise<{ window: Window; rows: CrawledPath[] } | null>;
+  notFound(): Promise<{ window: Window; rows: NotFoundPath[] } | null>;
+}
+
 export interface Repositories {
   /** 'mock' or 'supabase' — shown in the UI so nobody mistakes demo numbers for real ones. */
   kind: 'mock' | 'supabase';
   seo: SeoRepository;
+  traffic: TrafficRepository;
   properties: PropertyRepository;
   markets: MarketRepository;
   coverage: CoverageRepository;

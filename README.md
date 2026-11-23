@@ -55,6 +55,8 @@ months old, and Will County has never been ingested.
 | `/seo/keywords` | Chicago-market search volume, CPC, competition and 12-month seasonality for the tracked keywords |
 | `/seo/competitors` | Discovered competitors: appearances in our searches, keywords ranked, est. traffic, referring domains |
 | `/seo/audit` | Crawl of alwaysreadyrepair.com: findings by severity (AEO-tagged), AI-crawler access, llms.txt, schema coverage, per-page detail |
+| `/traffic` | Web Traffic (Cloudflare): visits and page views vs the previous period, referrers (AI assistants flagged), most-read pages, edge requests and cache share, 404s |
+| `/traffic/ai` | AI crawlers by company and purpose (training, AI search, live user request), what they read, visits sent back by AI assistants |
 
 Global filters (territory, date range, data source) live in the query string, so every view is linkable and works
 without JavaScript. `href()` in `src/lib/filters.ts` carries them between pages.
@@ -79,12 +81,17 @@ src/
     map/TerritoryMap.astro Schematic ZIP-tile map (placeholder for a real basemap)
     panels/                Self-loading panels used as server islands (WeatherDemand)
   pages/                   One file per route (pages/seo/* for SEO & AEO)
+  domain/traffic.ts        Web Traffic models (ZoneDay, VisitDay, CrawlerDay, TrafficSnapshot, …)
+  data/traffic/bots.ts     Which crawlers (User-Agent matches) and AI assistants (referrer hosts) Web Traffic picks out
+  lib/traffic/             Cloudflare GraphQL client + parsers, bot/referrer classification, roll-ups
+  repositories/traffic.ts  The traffic repository over one TrafficSnapshot (mock or KV)
   domain/seo.ts            SEO & AEO models (RankObservation, LocalPackResult, AiAnswer, SiteAudit, SeoSnapshot, …)
   data/seo/targets.ts      What the SEO refresh tracks: cities, keywords, AI prompts, engines, non-competitor domains
   lib/seo/                 Pure SEO helpers: roll-ups (stats), AI-answer matching (match), DataForSEO client + parsers
                            (dataforseo), page/robots/sitemap checks (audit)
   repositories/seo.ts      The SEO repository over one SeoSnapshot (mock or KV)
 scripts/seo-refresh.ts     Collects the SEO snapshot: DataForSEO calls + a free crawl of the site
+scripts/traffic-refresh.ts Collects the Web Traffic snapshot from Cloudflare's analytics API
 ```
 
 **Three data families, kept apart.** They come from different systems, refresh on different clocks and answer
@@ -169,6 +176,43 @@ because a prompt that names ARR only tests whether the engine can repeat it.
 **Ported code.** `src/lib/seo/match.ts` and `src/lib/seo/dataforseo.ts` are rewritten from
 [OpenSEO](https://github.com/every-app/open-seo) (MIT). See `THIRD_PARTY_NOTICES.md`. OpenSEO's app itself (React,
 D1, Workflows, accounts, billing, MCP) is not part of the Hub.
+
+## Web Traffic (Cloudflare)
+
+The `/traffic` pages show what Cloudflare sees in front of the website. Like SEO, it has **its own source switch**,
+`TRAFFIC_DATA_SOURCE` (`mock` by default, or `snapshot` to read the `traffic:snapshot` key in the `TRAFFIC` KV
+namespace). Pages never call Cloudflare; the refresh script does, and reading analytics is free.
+
+```bash
+npm run traffic:refresh                    # last 30 days: zone traffic, Web Analytics, AI crawlers
+npm run traffic:refresh -- --days=90       # a longer window for the daily series
+npm run traffic:refresh -- --only=crawlers # some steps only (zone, rum, crawlers)
+npm run traffic:load                       # copy .traffic/snapshot.json into the local TRAFFIC KV
+```
+
+Put `CLOUDFLARE_API_TOKEN` in `.env`: a custom API token with **Zone › Zone › Read**, **Zone › Analytics › Read**,
+**Zone › DNS › Read** and **Account › Account Analytics › Read**, scoped to the site's zone and account. The zone is found by name
+(`TRAFFIC_ZONE`, default the site domain); `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_ACCOUNT_ID` and
+`CLOUDFLARE_WEB_ANALYTICS_SITE_TAG` skip the lookups. Then set `TRAFFIC_DATA_SOURCE=snapshot` in `.dev.vars`.
+
+**What each step reads.**
+- `zone`: daily totals for the zone (`httpRequests1dGroups`): requests, cached, bandwidth, page views, unique IPs,
+  threats, 4xx and 5xx. Every request, people and bots.
+- `rum`: Cloudflare Web Analytics for the site: visits and page views per day, top pages, top referrers. Browser-only,
+  so bots don't count. If Web Analytics isn't on for the site, this step fails and the visit panels say so.
+- `crawlers`: requests whose User-Agent matches a bot in `src/data/traffic/bots.ts`, per day and per path, plus the
+  top 404s (`httpRequestsAdaptiveGroups`). Cloudflare keeps this detail only a few days on most plans, so the step
+  walks back one day at a time and stops where the plan's retention ends.
+
+**When the site isn't proxied.** Zone traffic, crawlers and 404s only count requests that pass through Cloudflare.
+If the site's hostnames are DNS-only (grey cloud), as with a site hosted on Webflow, those requests go straight to the
+host. The refresh reads the zone's DNS records to detect this (Zone › DNS › Read), and the pages then say so and show
+"n/a" for crawler totals instead of near-zero numbers. Web Analytics works either way, because it's a script in the
+site's own pages. In mock mode, `?edge=dns-only` previews that state.
+
+Daily series and crawler counts merge into the previous snapshot by date (400 days kept), so a daily run builds
+history past Cloudflare's own retention. Top-N lists (pages, referrers, crawled paths, 404s) are the latest window.
+AI-assistant visits are a floor: assistants that strip the referrer arrive as direct visits.
 
 ## Connecting Supabase
 

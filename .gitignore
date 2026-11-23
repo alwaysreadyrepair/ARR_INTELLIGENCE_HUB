@@ -6,4 +6,5 @@ dist/
 .dev.vars
 *.local
 .seo/
+.traffic/
 .DS_Store

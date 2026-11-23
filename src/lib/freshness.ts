@@ -14,7 +14,9 @@ export const STALE_AFTER_DAYS = {
   /** SEO rankings, map pack and AI answers refresh weekly; a missed week shows. */
   seo: 8,
   /** The site crawl is monthly. */
-  audit: 35
+  audit: 35,
+  /** Cloudflare traffic refreshes daily. */
+  traffic: 2
 } as const;
 
 export type FreshnessKind = keyof typeof STALE_AFTER_DAYS;

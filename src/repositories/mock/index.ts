@@ -7,6 +7,7 @@ import { newest } from '../../lib/freshness.ts';
 import { decadeOf, median, SQFT_BANDS, sqftBand } from '../../lib/stats.ts';
 import type { HousingProfile, Page, PropertyQuery, Repositories, TerritoryFilter } from '../types.ts';
 import { mockSeoRepository } from './seo.ts';
+import { mockTrafficRepository } from './traffic.ts';
 
 const HEATING_ORDER: HeatingType[] = ['forced-air-gas', 'boiler', 'heat-pump', 'electric', 'other', 'unknown'];
 
@@ -71,6 +72,7 @@ export function createMockRepositories(data: MockDataset): Repositories {
   return {
     kind: 'mock',
     seo: mockSeoRepository(data.now),
+    traffic: mockTrafficRepository(data.now),
     properties: {
       async search(q) {
         const pageSize = Math.min(100, Math.max(1, q.pageSize ?? 25));

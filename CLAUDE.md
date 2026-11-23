@@ -20,6 +20,8 @@ npm run check      # astro check (types)
 npm run build      # Astro build, Cloudflare adapter
 npm run seo:refresh -- --dry-run   # SEO & AEO refresh plan and cost; drop --dry-run to run it
 npm run seo:load                   # load .seo/snapshot.json into the local SEO KV
+npm run traffic:refresh            # Cloudflare traffic, Web Analytics, AI crawlers → .traffic/snapshot.json
+npm run traffic:load               # load it into the local TRAFFIC KV
 ```
 
 ## Architecture
@@ -28,6 +30,7 @@ npm run seo:load                   # load .seo/snapshot.json into the local SEO 
 - v1 runs on mock data (`src/data/mock/`), which **only** `src/repositories/mock/` may import. Pages reach data through `Astro.locals.repos` (interfaces in `src/repositories/types.ts`) wrapped in `load()`, and `Panel.astro` renders ok/stale/empty/error. `?simulate=error|empty|slow` forces states in mock mode.
 - Property facts, weather (stored per `WeatherArea`, never on a property), Sera demand and SEO stay in separate models.
 - **SEO & AEO tab (`/seo/*`)** has its own source switch, `SEO_DATA_SOURCE=mock|snapshot`, independent of `DATA_SOURCE`. Both build one `SeoSnapshot` (`src/domain/seo.ts`); snapshot mode reads it from the `SEO` KV key `seo:snapshot`, written by `npm run seo:refresh` (DataForSEO + a free crawl of the site) and `npm run seo:load`. Pages never call DataForSEO, so browsing costs nothing. Targets (cities, keywords, AI prompts) are data in `src/data/seo/targets.ts`; competitors are discovered from the rank results, and mock competitors use `.example` domains. `src/lib/seo/match.ts` and `dataforseo.ts` are ported from OpenSEO (MIT, see `THIRD_PARTY_NOTICES.md`); billed DataForSEO calls are never retried.
+- **Web Traffic (`/traffic/*`)** works the same way with `TRAFFIC_DATA_SOURCE=mock|snapshot` and the `TRAFFIC` KV key `traffic:snapshot`, written by `npm run traffic:refresh` (Cloudflare GraphQL Analytics, read-only `CLOUDFLARE_API_TOKEN`). Bots and AI assistants to pick out are data in `src/data/traffic/bots.ts`.
 - No production auth (a stub `DEV_USER` in `src/middleware.ts`) and no mutations. Controls that would write are rendered disabled. `DATA_SOURCE=supabase` deliberately makes every panel error until the Supabase repositories exist.
 - Charts are server-rendered SVG (`src/components/charts/`), no chart library. Tokens in `src/styles/global.css`.
 - Anything customer-facing must follow the ARR brand: load the `arr-bible`/`arr-brand` skills.

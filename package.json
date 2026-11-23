@@ -10,7 +10,9 @@
     "check": "astro check",
     "test": "node --experimental-strip-types --test \"src/**/*.test.ts\"",
     "seo:refresh": "node --experimental-strip-types --no-warnings=ExperimentalWarning --env-file-if-exists=.env scripts/seo-refresh.ts",
-    "seo:load": "wrangler kv key put seo:snapshot --path .seo/snapshot.json --binding SEO --local"
+    "seo:load": "wrangler kv key put seo:snapshot --path .seo/snapshot.json --binding SEO --local",
+    "traffic:refresh": "node --experimental-strip-types --no-warnings=ExperimentalWarning --env-file-if-exists=.env scripts/traffic-refresh.ts",
+    "traffic:load": "wrangler kv key put traffic:snapshot --path .traffic/snapshot.json --binding TRAFFIC --local"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^12.5.0",
