@@ -1,0 +1,5 @@
+# Local Worker settings. Copy to .dev.vars; never commit it. Leave AUTH_MODE unset for the dev stub.
+# AUTH_MODE=supabase
+# HIDE_MOCK=true
+SUPABASE_URL=
+SUPABASE_PUBLISHABLE_KEY=

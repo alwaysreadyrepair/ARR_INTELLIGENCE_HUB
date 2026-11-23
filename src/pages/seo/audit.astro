@@ -5,6 +5,7 @@ import Panel from '../../components/ui/Panel.astro';
 import Kpi from '../../components/ui/Kpi.astro';
 import Status from '../../components/ui/Status.astro';
 import Icon from '../../components/ui/Icon.astro';
+import { httpUrl } from '../../lib/url.ts';
 import { load, hasData, errorOf } from '../../lib/load.ts';
 import { href } from '../../lib/filters.ts';
 import { num } from '../../lib/format.ts';
@@ -62,7 +63,7 @@ const CHECKS = a ? [
       <thead><tr><th>Page</th><th class="num">Status</th><th>Title</th><th class="num">Words</th><th class="num">H1</th><th>Structured data</th><th class="num">Findings</th></tr></thead>
       <tbody>{pages.map((p) => (
         <tr>
-          <td class="mono small"><a href={p.url} rel="noopener" target="_blank">{path(p.url)}</a>{p.noindex && <span class="tag warn">noindex</span>}</td>
+          <td class="mono small"><a href={httpUrl(p.url)} rel="noopener" target="_blank">{path(p.url)}</a>{p.noindex && <span class="tag warn">noindex</span>}</td>
           <td class="num">{p.status}</td>
           <td class="small">{p.title ?? <span class="muted">none</span>}</td>
           <td class="num">{num(p.wordCount)}</td>

@@ -5,6 +5,7 @@ import Pos from '../../components/seo/Pos.astro';
 import Panel from '../../components/ui/Panel.astro';
 import Columns from '../../components/charts/Columns.astro';
 import BarList from '../../components/charts/BarList.astro';
+import { httpUrl } from '../../lib/url.ts';
 import { load, hasData } from '../../lib/load.ts';
 import { enumParam, href } from '../../lib/filters.ts';
 import { num } from '../../lib/format.ts';
@@ -76,7 +77,7 @@ const domainOf = (u: string | null) => (u ? u.replace(/^https?:\/\/(www\.)?/, ''
           <tr>
             <td>{sentence(k.keyword)}</td>
             <td class="num">{c ? <Pos position={c.position} delta={c.delta} /> : '—'}</td>
-            <td class="mono small">{c?.url ? <a href={c.url} rel="noopener" target="_blank">{domainOf(c.url)}</a> : <span class="muted">—</span>}</td>
+            <td class="mono small">{c?.url ? <a href={httpUrl(c.url)} rel="noopener" target="_blank">{domainOf(c.url)}</a> : <span class="muted">—</span>}</td>
             <td>{c?.topCompetitor ? <>{c.topCompetitor.domain} <span class="muted small">#{c.topCompetitor.position}</span></> : c?.position === 1 ? <span class="muted">No one</span> : '—'}</td>
             <td class="small">{c?.features.map((f) => FEATURE[f] ?? f).join(' · ') || '—'}</td>
             <td>{c ? (c.inLocalPack ? 'In it' : <span class="muted">Not in it</span>) : '—'}</td>

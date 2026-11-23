@@ -62,6 +62,8 @@ const log = (msg: string) => console.log(msg);
 
 const token = process.env.CLOUDFLARE_API_TOKEN;
 if (!token) fail('No CLOUDFLARE_API_TOKEN. Create a read-only API token (see the top of this file for permissions) and put it in .env.');
+// Cloudflare answers a malformed token with "Invalid request headers", which reads like a permissions problem.
+if (/paste|your-token/i.test(token) || !/^[A-Za-z0-9_-]{30,}$/.test(token)) fail('CLOUDFLARE_API_TOKEN is a placeholder or malformed. Put the real API token in .env, with no quotes or spaces.');
 const cf = createCfClient(token);
 const zoneName = process.env.TRAFFIC_ZONE ?? SITE_DOMAIN;
 

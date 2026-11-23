@@ -5,6 +5,7 @@
  *   npm run seo:refresh -- --only=search-console   Google Search Console only (free; needs GSC_SERVICE_ACCOUNT)
  *   npm run seo:refresh                          everything
  *   npm run seo:refresh -- --sandbox            DataForSEO's free sandbox: real request shapes, fake data
+ *   npm run seo:refresh -- --max-usd=5           refuse to start when the estimate is higher (an estimate, not a hard cap)
  *   npm run seo:load                             put the snapshot in the Hub's local SEO KV
  *
  * Steps: audit, search-console, rankings, local, grid, ai, keywords, competitors. Credentials: DATAFORSEO_LOGIN +
@@ -33,6 +34,7 @@ import {
 } from '../src/lib/seo/dataforseo.ts';
 import { matchAnswer, ownedDomain } from '../src/lib/seo/match.ts';
 import { auditPage, parseRobots, parseSitemap } from '../src/lib/seo/audit.ts';
+import { httpUrl } from '../src/lib/url.ts';
 import { gridPoints } from '../src/lib/seo/grid.ts';
 import { askOpenAi, costOf } from '../src/lib/seo/openai.ts';
 import { askClaude, claudeClient, hasAnthropicCredentials } from '../src/lib/seo/claude.ts';
@@ -123,6 +125,10 @@ if (steps.has('ai')) {
 }
 if (gscSkipped) log("  search-console  skipped (no GSC_SERVICE_ACCOUNT); the last snapshot's data is kept");
 if (paidSteps.length) log(`  estimate     ~$${estimate.toFixed(2)} (list prices; the snapshot records DataForSEO's actual charge${sandbox ? '; the sandbox charges nothing' : ''})`);
+if (argv.includes('--max-usd')) fail('Write --max-usd=5, with the equals sign.');
+const maxUsd = value('max-usd') == null ? null : Number(value('max-usd'));
+if (maxUsd != null && !(maxUsd >= 0)) fail('--max-usd must be a number of dollars.');
+if (maxUsd != null && !sandbox && estimate > maxUsd) fail(`The estimate ($${estimate.toFixed(2)}) is over --max-usd=${maxUsd}. Nothing was spent.`);
 if (dryRun) process.exit(0);
 
 const creds = credentialsFromEnv(process.env);
@@ -213,6 +219,7 @@ async function runAudit(): Promise<SiteAudit> {
   if (!llmsTxt) siteIssues.push(issue('llms-txt-missing', 'low', 'No /llms.txt. Optional, but it hands AI crawlers a plain summary of the business, services and area.', true));
 
   const sameSite = [...pageUrls].filter((u) => {
+    if (!httpUrl(u)) return false;
     try {
       return ownedDomain(new URL(u).hostname, SITE_DOMAIN);
     } catch {

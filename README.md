@@ -10,9 +10,10 @@ ARR Heating + Cooling's internal property, market, weather and ingestion dashboa
 - What should we download or refresh next?
 - Where does ARR show up when homeowners ask Google, Google Maps and AI assistants for HVAC help?
 
-**Status: v1 shell.** Every page runs on typed **mock data** behind repository interfaces. There is **no production
-authentication** and **no database write**. A yellow banner on every page says both. Don't deploy it anywhere reachable
-until Supabase Auth is in (see [Connecting Supabase](#connecting-supabase)).
+**Status: 1.0, not deployed.** SEO & AEO and Web Traffic read real snapshots. Everything else is still typed **mock
+data**, which a build refuses to show. Builds require Supabase sign-in; only `astro dev` uses a stub user. Nothing writes
+to a database. See [docs/RUNBOOK.md](docs/RUNBOOK.md), [docs/USER-GUIDE.md](docs/USER-GUIDE.md) and
+[docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 This is ARR's central internal tool hub, kept in its own repository. It used to live in the pricing app's monorepo
 (`alwaysreadyrepairhvac/arr_instant_pricing`, `apps/intelligence-hub`) and shares no code with it. The pricing app
@@ -262,8 +263,8 @@ The swap is one directory plus the factory. Pages and components don't change.
    key (`sb_secret_…`, the old `service_role`) out of the Worker.
 4. **Wire the factory.** In `repositories/index.ts`, return the Supabase repositories when `DATA_SOURCE=supabase`.
    Until then, that setting makes every panel show an error rather than quietly falling back to mock numbers.
-5. **Auth.** Replace `DEV_USER` in `src/middleware.ts` with a Supabase Auth session check (redirect to sign-in when
-   missing) and drop the "No authentication" banner, which keys off `user.stub`.
+5. **Auth: done.** `src/middleware.ts` verifies the Supabase token on every request (`src/lib/auth.ts`,
+   `src/lib/access.ts`). Roles come from `app_metadata.hub_role`.
 6. **Mutations come last**, each behind auth and an `audit_events` insert: start/retry/cancel import, resolve/ignore
    quality issue, rotate project key. The buttons exist today and are disabled.
 7. Run the mock repository tests against the Supabase repositories as a contract test, then point `DATA_SOURCE` at

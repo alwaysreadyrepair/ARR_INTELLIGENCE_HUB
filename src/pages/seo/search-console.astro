@@ -5,6 +5,7 @@ import Panel from '../../components/ui/Panel.astro';
 import Kpi from '../../components/ui/Kpi.astro';
 import Columns from '../../components/charts/Columns.astro';
 import BarList from '../../components/charts/BarList.astro';
+import { httpUrl } from '../../lib/url.ts';
 import { load, hasData, errorOf } from '../../lib/load.ts';
 import { enumParam, href } from '../../lib/filters.ts';
 import { date, num, pct } from '../../lib/format.ts';
@@ -150,7 +151,7 @@ const posDelta = cur && prev && prev.position ? prev.position - cur.position : n
       <thead><tr><th>Page</th><th class="num">Clicks</th><th class="num">Impressions</th><th class="num">Click rate</th><th class="num">Avg position</th></tr></thead>
       <tbody>{pages.map((p) => { const cm = clickMove(p), pm = posMove(p); return (
         <tr>
-          <td class="mono small"><a href={p.page} rel="noopener" target="_blank">{pathOf(p.page)}</a></td>
+          <td class="mono small"><a href={httpUrl(p.page)} rel="noopener" target="_blank">{pathOf(p.page)}</a></td>
           <td class="num">{num(p.clicks)}{cm && <span class:list={['mv', cm.cls]}>{cm.text}</span>}</td>
           <td class="num">{num(p.impressions)}</td>
           <td class="num">{pct(p.ctr)}</td>
@@ -170,7 +171,7 @@ const posDelta = cur && prev && prev.position ? prev.position - cur.position : n
   .mv.up { color: var(--good); }
   .mv.down { color: var(--serious); }
   .mv.new { color: var(--text-3); font-weight: 500; }
-  .tag { margin-left: 8px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--border); color: var(--text-3); }
+  .tag { margin-left: 8px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--border); color: var(--text-2); }
   .pad { padding: 14px 18px; margin: 0; }
   .seg { display: inline-flex; gap: 2px; border: 1px solid var(--border); border-radius: 7px; padding: 2px; }
   .seg a { padding: 2px 9px; border-radius: 5px; color: var(--text-2); }
