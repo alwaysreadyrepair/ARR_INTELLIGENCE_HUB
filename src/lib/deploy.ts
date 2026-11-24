@@ -1,10 +1,12 @@
 /* What must be true of an environment in wrangler.json before it may be deployed. */
-interface EnvConfig { vars?: Record<string, string>; kv_namespaces?: { binding: string; id: string }[]; workers_dev?: boolean; preview_urls?: boolean; routes?: { pattern: string }[] }
+interface EnvConfig { name?: string; vars?: Record<string, string>; kv_namespaces?: { binding: string; id: string }[]; workers_dev?: boolean; preview_urls?: boolean; routes?: { pattern: string }[] }
 
 export function deployProblems(config: { env?: Record<string, EnvConfig> }, name: string): string[] {
   const e = config.env?.[name];
   if (!e) return [`wrangler.json has no "${name}" environment.`];
   const out: string[] = [];
+  // The earlier Hub (hub.arrhvac.dev) is a live Worker under this name in the same account.
+  if (!e.name || e.name === 'arr-intelligence-hub') out.push('Set a Worker name other than arr-intelligence-hub: deploying under it would replace the existing live Hub.');
   const bad = (v: string | undefined) => !v || v === 'local' || v.includes('REPLACE');
   if (e.workers_dev !== false || e.preview_urls !== false) out.push('workers_dev and preview_urls must be false, or the Hub is reachable outside its hostname.');
   if (!e.routes?.length || e.routes.some((r) => bad(r.pattern))) out.push('Set the hostname in routes.');

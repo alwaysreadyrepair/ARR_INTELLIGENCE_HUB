@@ -6,7 +6,7 @@ Nothing here has run against a live Supabase or Cloudflare environment yet. Chec
 1. **Repository:** make it private first.
 2. **Supabase** (one project per environment): turn off public sign-up, use asymmetric JWT signing keys (legacy HS256 tokens are refused), and keep the access-token lifetime short. A removed user keeps access until their current token expires.
 3. **KV:** create four namespaces (SEO and TRAFFIC, staging and production) and put their ids in `wrangler.json`.
-4. **wrangler.json:** replace every `REPLACE_ME`. The publishable key is safe there; a `sb_secret_` key never is.
+4. **wrangler.json:** the Workers are `arr-hub-live` (production) and `arr-intelligence-hub-staging`. Never reuse `arr-intelligence-hub`: that is the earlier Hub, still live. Replace every `REPLACE_ME`. The publishable key is safe there; a `sb_secret_` key never is.
 5. **Zone settings:** turn on Always Use HTTPS, and add a rate-limit rule on `/auth/sign-in` (unlimited attempts there use up the shared Supabase limit). Keep Supabase's default refresh-token reuse interval.
 6. **Cloudflare Access:** put the hostname behind it before the first deploy.
 7. `npm run deploy -- staging --dry-run`, then `npm run deploy -- staging`. It refuses to run with gaps and runs tests, types and build first.
